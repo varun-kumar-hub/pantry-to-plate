@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { useAuth } from '@/hooks/useAuth';
+import { useExternalAuth } from '@/hooks/useExternalAuth';
 import { ChefHat, Heart, Calendar, ShoppingCart, LogOut, User } from 'lucide-react';
 import {
   DropdownMenu,
@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 export function Header() {
-  const { user, signOut } = useAuth();
+  const { user, signOut } = useExternalAuth();
   const navigate = useNavigate();
 
   const handleSignOut = async () => {

@@ -2,10 +2,10 @@ import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Header } from '@/components/Header';
 import { ChefHat, Search, Heart, Calendar, ShoppingCart, Sparkles, ArrowRight } from 'lucide-react';
-import { useAuth } from '@/hooks/useAuth';
+import { useExternalAuth } from '@/hooks/useExternalAuth';
 
 export default function Index() {
-  const { user } = useAuth();
+  const { user } = useExternalAuth();
 
   const features = [
     {

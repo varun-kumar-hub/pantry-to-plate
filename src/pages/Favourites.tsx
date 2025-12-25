@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { Header } from '@/components/Header';
 import { RecipeCard } from '@/components/RecipeCard';
 import { Button } from '@/components/ui/button';
-import { useAuth } from '@/hooks/useAuth';
+import { useExternalAuth } from '@/hooks/useExternalAuth';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/external-supabase/client';
 import { Recipe } from '@/data/recipes';
 import { Heart, Search } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -18,7 +18,7 @@ interface FavouriteRecipe {
 }
 
 export default function Favourites() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading } = useExternalAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -39,7 +39,7 @@ export default function Favourites() {
 
   const loadFavourites = async () => {
     setLoading(true);
-    const { data, error } = await supabase
+    const { data, error } = await externalSupabase
       .from('favourite_recipes')
       .select('*')
       .eq('user_id', user?.id)
@@ -60,7 +60,7 @@ export default function Favourites() {
   const removeFavourite = async (recipe: Recipe) => {
     if (!user) return;
 
-    await supabase
+    await externalSupabase
       .from('favourite_recipes')
       .delete()
       .eq('user_id', user.id)

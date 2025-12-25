@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/ui/button';
-import { useAuth } from '@/hooks/useAuth';
+import { useExternalAuth } from '@/hooks/useExternalAuth';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/external-supabase/client';
 import { getRecipeById, Recipe } from '@/data/recipes';
 import { 
   ArrowLeft, 
@@ -36,7 +36,7 @@ const MEALS = ['breakfast', 'lunch', 'dinner'];
 export default function RecipeDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading } = useExternalAuth();
   const { toast } = useToast();
 
   const [recipe, setRecipe] = useState<Recipe | null>(null);
@@ -72,7 +72,7 @@ export default function RecipeDetail() {
   const checkFavourite = async () => {
     if (!user || !recipe) return;
 
-    const { data } = await supabase
+    const { data } = await externalSupabase
       .from('favourite_recipes')
       .select('id')
       .eq('user_id', user.id)
@@ -86,7 +86,7 @@ export default function RecipeDetail() {
     if (!user || !recipe) return;
 
     if (isFavourite) {
-      await supabase
+      await externalSupabase
         .from('favourite_recipes')
         .delete()
         .eq('user_id', user.id)
@@ -98,7 +98,7 @@ export default function RecipeDetail() {
         description: `${recipe.name} has been removed from your favourites.`,
       });
     } else {
-      await supabase.from('favourite_recipes').insert([{
+      await externalSupabase.from('favourite_recipes').insert([{
         user_id: user.id,
         recipe_id: recipe.id,
         recipe_name: recipe.name,
@@ -123,7 +123,7 @@ export default function RecipeDetail() {
       return;
     }
 
-    const { error } = await supabase.from('meal_plans').upsert([{
+    const { error } = await externalSupabase.from('meal_plans').upsert([{
       user_id: user.id,
       day_of_week: selectedDay,
       meal_type: selectedMeal,
