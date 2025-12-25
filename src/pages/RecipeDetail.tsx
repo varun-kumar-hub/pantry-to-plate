@@ -13,7 +13,8 @@ import {
   ChefHat, 
   Heart, 
   Calendar,
-  CheckCircle2
+  CheckCircle2,
+  Sparkles
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -30,6 +31,15 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
+interface AIGeneratedRecipe {
+  recipe_name: string;
+  cooking_time_minutes: number;
+  difficulty: string;
+  servings: number;
+  ingredients: { name: string; quantity: string }[];
+  instructions: string[];
+}
+
 const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 const MEALS = ['breakfast', 'lunch', 'dinner'];
 
@@ -40,11 +50,14 @@ export default function RecipeDetail() {
   const { toast } = useToast();
 
   const [recipe, setRecipe] = useState<Recipe | null>(null);
+  const [aiRecipe, setAiRecipe] = useState<AIGeneratedRecipe | null>(null);
   const [isFavourite, setIsFavourite] = useState(false);
   const [showPlannerModal, setShowPlannerModal] = useState(false);
   const [selectedDay, setSelectedDay] = useState('');
   const [selectedMeal, setSelectedMeal] = useState('');
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
+
+  const isAIRecipe = id === 'ai-generated';
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -54,14 +67,24 @@ export default function RecipeDetail() {
 
   useEffect(() => {
     if (id) {
-      const foundRecipe = getRecipeById(id);
-      if (foundRecipe) {
-        setRecipe(foundRecipe);
+      if (isAIRecipe) {
+        // Load AI recipe from sessionStorage
+        const storedRecipe = sessionStorage.getItem('aiRecipe');
+        if (storedRecipe) {
+          setAiRecipe(JSON.parse(storedRecipe));
+        } else {
+          navigate('/search');
+        }
       } else {
-        navigate('/search');
+        const foundRecipe = getRecipeById(id);
+        if (foundRecipe) {
+          setRecipe(foundRecipe);
+        } else {
+          navigate('/search');
+        }
       }
     }
-  }, [id, navigate]);
+  }, [id, navigate, isAIRecipe]);
 
   useEffect(() => {
     if (user && recipe) {
@@ -163,7 +186,7 @@ export default function RecipeDetail() {
     });
   };
 
-  if (authLoading || !recipe) {
+  if (authLoading || (!recipe && !aiRecipe)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="animate-pulse text-muted-foreground">Loading...</div>
@@ -171,10 +194,24 @@ export default function RecipeDetail() {
     );
   }
 
-  const difficultyColor = {
+  // Normalize data for display
+  const displayName = isAIRecipe ? aiRecipe?.recipe_name : recipe?.name;
+  const displayTime = isAIRecipe ? aiRecipe?.cooking_time_minutes : recipe?.cookingTime;
+  const displayServings = isAIRecipe ? aiRecipe?.servings : recipe?.servings;
+  const displayDifficulty = isAIRecipe ? aiRecipe?.difficulty : recipe?.difficulty;
+  const displayIngredients = isAIRecipe ? aiRecipe?.ingredients : recipe?.ingredients;
+  const displayInstructions = isAIRecipe ? aiRecipe?.instructions : recipe?.instructions;
+  const displayImage = isAIRecipe ? null : recipe?.image;
+  const displayCategory = isAIRecipe ? 'AI Generated' : recipe?.category;
+  const displayDescription = isAIRecipe ? `AI-generated recipe for ${aiRecipe?.recipe_name}` : recipe?.description;
+
+  const difficultyColor: Record<string, string> = {
     Easy: 'bg-primary/10 text-primary',
+    easy: 'bg-primary/10 text-primary',
     Medium: 'bg-golden/20 text-amber-700',
+    medium: 'bg-golden/20 text-amber-700',
     Hard: 'bg-accent/10 text-accent',
+    hard: 'bg-accent/10 text-accent',
   };
 
   return (
@@ -191,44 +228,58 @@ export default function RecipeDetail() {
           {/* Left column - Image and basic info */}
           <div>
             <div className="relative rounded-2xl overflow-hidden shadow-elevated mb-6">
-              <img
-                src={recipe.image}
-                alt={recipe.name}
-                className="w-full aspect-[4/3] object-cover"
-              />
+              {displayImage ? (
+                <img
+                  src={displayImage}
+                  alt={displayName || 'Recipe'}
+                  className="w-full aspect-[4/3] object-cover"
+                />
+              ) : (
+                <div className="w-full aspect-[4/3] bg-gradient-to-br from-primary/20 via-accent/10 to-secondary flex items-center justify-center">
+                  <div className="text-center p-4">
+                    <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-primary/20 mb-3">
+                      <Sparkles className="w-10 h-10 text-primary" />
+                    </div>
+                    <p className="text-lg text-muted-foreground font-medium">AI Generated Recipe</p>
+                  </div>
+                </div>
+              )}
               <div className="absolute inset-0 bg-gradient-to-t from-foreground/60 via-transparent to-transparent" />
               
               <div className="absolute bottom-4 left-4 right-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className={cn("px-3 py-1 rounded-full text-sm font-medium", difficultyColor[recipe.difficulty])}>
-                    {recipe.difficulty}
+                  <span className={cn("px-3 py-1 rounded-full text-sm font-medium", difficultyColor[displayDifficulty || ''] || 'bg-muted text-muted-foreground')}>
+                    {displayDifficulty}
                   </span>
-                  <span className="px-3 py-1 rounded-full text-sm font-medium bg-background/90 text-foreground">
-                    {recipe.category}
+                  <span className="px-3 py-1 rounded-full text-sm font-medium bg-background/90 text-foreground flex items-center gap-1">
+                    {isAIRecipe && <Sparkles className="w-3 h-3" />}
+                    {displayCategory}
                   </span>
                 </div>
               </div>
             </div>
 
-            {/* Actions */}
-            <div className="flex gap-3 mb-8">
-              <Button
-                variant={isFavourite ? 'default' : 'outline'}
-                className="flex-1 gap-2"
-                onClick={toggleFavourite}
-              >
-                <Heart className={cn("h-5 w-5", isFavourite && "fill-current")} />
-                {isFavourite ? 'Saved' : 'Save to Favourites'}
-              </Button>
-              <Button
-                variant="default"
-                className="flex-1 gap-2"
-                onClick={() => setShowPlannerModal(true)}
-              >
-                <Calendar className="h-5 w-5" />
-                Add to Meal Plan
-              </Button>
-            </div>
+            {/* Actions - hide for AI recipes */}
+            {!isAIRecipe && (
+              <div className="flex gap-3 mb-8">
+                <Button
+                  variant={isFavourite ? 'default' : 'outline'}
+                  className="flex-1 gap-2"
+                  onClick={toggleFavourite}
+                >
+                  <Heart className={cn("h-5 w-5", isFavourite && "fill-current")} />
+                  {isFavourite ? 'Saved' : 'Save to Favourites'}
+                </Button>
+                <Button
+                  variant="default"
+                  className="flex-1 gap-2"
+                  onClick={() => setShowPlannerModal(true)}
+                >
+                  <Calendar className="h-5 w-5" />
+                  Add to Meal Plan
+                </Button>
+              </div>
+            )}
 
             {/* Ingredients */}
             <div className="bg-card rounded-2xl p-6 shadow-soft">
@@ -237,7 +288,7 @@ export default function RecipeDetail() {
                 Ingredients
               </h2>
               <ul className="space-y-3">
-                {recipe.ingredients.map((ingredient, index) => (
+                {displayIngredients?.map((ingredient, index) => (
                   <li key={index} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                     <span className="text-foreground capitalize">{ingredient.name}</span>
                     <span className="text-muted-foreground">{ingredient.quantity}</span>
@@ -250,21 +301,21 @@ export default function RecipeDetail() {
           {/* Right column - Details and instructions */}
           <div>
             <h1 className="font-display text-3xl md:text-4xl font-bold text-foreground mb-4">
-              {recipe.name}
+              {displayName}
             </h1>
             
             <p className="text-lg text-muted-foreground mb-6">
-              {recipe.description}
+              {displayDescription}
             </p>
 
             <div className="flex items-center gap-6 mb-8">
               <div className="flex items-center gap-2 text-foreground">
                 <Clock className="h-5 w-5 text-primary" />
-                <span>{recipe.cookingTime} minutes</span>
+                <span>{displayTime} minutes</span>
               </div>
               <div className="flex items-center gap-2 text-foreground">
                 <Users className="h-5 w-5 text-primary" />
-                <span>{recipe.servings} servings</span>
+                <span>{displayServings} servings</span>
               </div>
             </div>
 
@@ -274,7 +325,7 @@ export default function RecipeDetail() {
                 Step-by-Step Instructions
               </h2>
               <div className="space-y-4">
-                {recipe.instructions.map((step, index) => (
+                {displayInstructions?.map((step, index) => (
                   <button
                     key={index}
                     onClick={() => toggleStep(index)}
@@ -309,7 +360,7 @@ export default function RecipeDetail() {
                 ))}
               </div>
 
-              {completedSteps.size === recipe.instructions.length && (
+              {displayInstructions && completedSteps.size === displayInstructions.length && (
                 <div className="mt-6 p-4 rounded-xl bg-primary/10 text-center">
                   <p className="text-primary font-medium">
                     🎉 Congratulations! You've completed all the steps!
