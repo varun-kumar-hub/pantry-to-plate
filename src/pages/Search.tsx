@@ -10,6 +10,7 @@ import { useExternalAuth } from '@/hooks/useExternalAuth';
 import { useToast } from '@/hooks/use-toast';
 import { externalSupabase } from '@/integrations/external-supabase/client';
 import { recipes, searchRecipes, Recipe } from '@/data/recipes';
+import { getFallbackVarieties } from '@/data/dishVarieties';
 import { Search as SearchIcon, X, Sparkles, ChefHat, Loader2, ArrowLeft } from 'lucide-react';
 
 type SearchState = 'initial' | 'varieties' | 'recipe';
@@ -141,13 +142,9 @@ export default function Search() {
         }
       );
 
-      if (!response.ok) {
-        throw new Error(`HTTP error: ${response.status}`);
-      }
-
       const data = await response.json();
 
-      if (data.varieties && data.varieties.length > 0) {
+      if (response.ok && data.varieties && data.varieties.length > 0) {
         setVarieties(data.varieties);
         setIsLoading(false);
         
@@ -158,26 +155,66 @@ export default function Search() {
 
         // Fetch real images for all varieties in background
         fetchImagesForVarieties(data.varieties);
-      } else if (data.error) {
-        throw new Error(data.error);
       } else {
-        setIsLoading(false);
-        toast({
-          title: 'No varieties found',
-          description: 'Try a different dish name.',
-          variant: 'destructive',
-        });
-        setSearchState('initial');
+        // AI failed - try fallback data
+        const fallbackData = getFallbackVarieties(searchQuery.trim());
+        
+        if (fallbackData && fallbackData.length > 0) {
+          const varietiesWithType: DishVariety[] = fallbackData.map(v => ({
+            variety_name: v.variety_name,
+            short_description: v.short_description,
+          }));
+          
+          setVarieties(varietiesWithType);
+          setIsLoading(false);
+          
+          toast({
+            title: 'Varieties Found!',
+            description: `Found ${fallbackData.length} popular varieties. Fetching images...`,
+          });
+
+          // Fetch real images for fallback varieties
+          fetchImagesForVarieties(varietiesWithType);
+        } else {
+          setIsLoading(false);
+          toast({
+            title: 'No varieties found',
+            description: 'Try a common dish like biryani, pizza, or dosa.',
+            variant: 'destructive',
+          });
+          setSearchState('initial');
+        }
       }
     } catch (error: any) {
       console.error('Error fetching varieties:', error);
-      toast({
-        title: 'Could not find varieties',
-        description: 'Try a different dish name.',
-        variant: 'destructive',
-      });
-      setSearchState('initial');
-      setIsLoading(false);
+      
+      // Try fallback on network error
+      const fallbackData = getFallbackVarieties(searchQuery.trim());
+      
+      if (fallbackData && fallbackData.length > 0) {
+        const varietiesWithType: DishVariety[] = fallbackData.map(v => ({
+          variety_name: v.variety_name,
+          short_description: v.short_description,
+        }));
+        
+        setVarieties(varietiesWithType);
+        setIsLoading(false);
+        
+        toast({
+          title: 'Varieties Found!',
+          description: `Found ${fallbackData.length} popular varieties. Fetching images...`,
+        });
+
+        fetchImagesForVarieties(varietiesWithType);
+      } else {
+        toast({
+          title: 'Could not find varieties',
+          description: 'Try a common dish like biryani, pizza, or dosa.',
+          variant: 'destructive',
+        });
+        setSearchState('initial');
+        setIsLoading(false);
+      }
     }
   };
 
