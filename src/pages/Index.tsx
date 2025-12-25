@@ -48,7 +48,7 @@ export default function Index() {
               <span>Your personal recipe assistant</span>
             </div>
 
-            <h1 className="font-display text-4xl md:text-6xl font-bold text-foreground mb-6 animate-fade-up" style={{ animationDelay: '0.1s' }}>
+            <h1 className="font-display text-4xl md:text-6xl font-bold text-foreground mb-6 animate-fade-up" style={{ animationDelay: '0.1s',color:"black"}}>
               Cook Amazing Meals with What You Have
             </h1>
 
