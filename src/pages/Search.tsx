@@ -183,8 +183,6 @@ export default function Search() {
 
   const handleVarietyClick = async (variety: DishVariety) => {
     setIsLoading(true);
-    setSearchState('recipe');
-    setAiRecipe(null);
 
     try {
       // Generate recipe
@@ -212,8 +210,9 @@ export default function Search() {
           image_url: variety.image_url || null,
         };
         
-        setAiRecipe(recipeWithImage);
-        setIsLoading(false);
+        // Store recipe and navigate directly to detail page
+        sessionStorage.setItem('aiRecipe', JSON.stringify(recipeWithImage));
+        navigate('/recipe/ai-generated');
         
         toast({
           title: 'Recipe Generated!',
@@ -229,7 +228,6 @@ export default function Search() {
         description: 'Please try again.',
         variant: 'destructive',
       });
-      setSearchState('varieties');
       setIsLoading(false);
     }
   };
