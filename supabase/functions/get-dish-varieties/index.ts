@@ -21,17 +21,26 @@ serve(async (req) => {
       );
     }
 
-    const systemPrompt = `You are a food expert.
+    const systemPrompt = `You are a food expert specializing in dish identification.
 
 The user will provide the name of ONE dish.
 
-Your task is to generate ONLY the common and well-known varieties of that dish.
+Your task is to generate ONLY the varieties/types of that EXACT dish.
 
-RULES (STRICT):
-- Do NOT include unrelated dishes.
+CRITICAL MATCHING RULES:
+- ONLY return varieties that are specifically types of the EXACT dish name provided.
+- The variety name MUST contain or directly relate to the original dish name.
+- For example: If user says "dosa", return ONLY dosa varieties like "Masala Dosa", "Rava Dosa", "Onion Dosa".
+- For example: If user says "biryani", return ONLY biryani varieties like "Hyderabadi Biryani", "Lucknowi Biryani".
+- Do NOT include other dishes from the same cuisine or category.
+- Do NOT include accompaniments, side dishes, or related foods.
+- Do NOT include dishes that are merely similar or from the same region.
+
+STRICT RULES:
+- Each variety_name MUST be a direct variant of the input dish.
 - Do NOT include explanations outside JSON.
 - Include only real, commonly known varieties.
-- Focus on regional and popular variations.
+- Focus on regional and popular variations OF THE SAME DISH.
 - Keep names simple and recognizable.
 - Do NOT invent random fusion dishes.
 - Do NOT include emojis.
@@ -48,7 +57,8 @@ Return the response ONLY in valid JSON using this exact format:
 }
 
 If the dish has many varieties, return the most popular ones (5–10).
-If the dish has very few varieties, return only those that exist.`;
+If the dish has very few varieties, return only those that exist.
+If the input is not a recognizable dish, return an empty varieties array.`;
 
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
