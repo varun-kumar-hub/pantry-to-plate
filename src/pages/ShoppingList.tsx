@@ -3,9 +3,9 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { useAuth } from '@/hooks/useAuth';
+import { useExternalAuth } from '@/hooks/useExternalAuth';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/external-supabase/client';
 import { ShoppingCart, Trash2, Calendar, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -17,7 +17,7 @@ interface ShoppingItem {
 }
 
 export default function ShoppingList() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading } = useExternalAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -38,7 +38,7 @@ export default function ShoppingList() {
 
   const loadShoppingList = async () => {
     setLoading(true);
-    const { data, error } = await supabase
+    const { data, error } = await externalSupabase
       .from('shopping_list')
       .select('*')
       .eq('user_id', user?.id)
@@ -60,7 +60,7 @@ export default function ShoppingList() {
   const toggleItem = async (item: ShoppingItem) => {
     const newValue = !item.is_purchased;
 
-    await supabase
+    await externalSupabase
       .from('shopping_list')
       .update({ is_purchased: newValue })
       .eq('id', item.id);
@@ -71,14 +71,14 @@ export default function ShoppingList() {
   };
 
   const deleteItem = async (id: string) => {
-    await supabase.from('shopping_list').delete().eq('id', id);
+    await externalSupabase.from('shopping_list').delete().eq('id', id);
     setItems(prev => prev.filter(i => i.id !== id));
   };
 
   const clearPurchased = async () => {
     if (!user) return;
 
-    await supabase
+    await externalSupabase
       .from('shopping_list')
       .delete()
       .eq('user_id', user.id)
@@ -95,7 +95,7 @@ export default function ShoppingList() {
   const clearAll = async () => {
     if (!user) return;
 
-    await supabase.from('shopping_list').delete().eq('user_id', user.id);
+    await externalSupabase.from('shopping_list').delete().eq('user_id', user.id);
     setItems([]);
 
     toast({

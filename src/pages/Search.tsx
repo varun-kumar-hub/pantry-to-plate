@@ -6,9 +6,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { useAuth } from '@/hooks/useAuth';
+import { useExternalAuth } from '@/hooks/useExternalAuth';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { externalSupabase } from '@/integrations/external-supabase/client';
 import { recipes, searchRecipes, Recipe } from '@/data/recipes';
 import { Search as SearchIcon, X, Sparkles, ChefHat, Clock, Users, Loader2 } from 'lucide-react';
 
@@ -22,7 +22,7 @@ interface AIGeneratedRecipe {
 }
 
 export default function Search() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading } = useExternalAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   
@@ -46,7 +46,7 @@ export default function Search() {
   }, [user]);
 
   const loadFavourites = async () => {
-    const { data } = await supabase
+    const { data } = await externalSupabase
       .from('favourite_recipes')
       .select('recipe_id')
       .eq('user_id', user?.id);
@@ -127,7 +127,7 @@ export default function Search() {
     const isFavourite = favouriteIds.has(recipe.id);
 
     if (isFavourite) {
-      await supabase
+      await externalSupabase
         .from('favourite_recipes')
         .delete()
         .eq('user_id', user.id)
@@ -144,7 +144,7 @@ export default function Search() {
         description: `${recipe.name} has been removed from your favourites.`,
       });
     } else {
-      await supabase.from('favourite_recipes').insert([{
+      await externalSupabase.from('favourite_recipes').insert([{
         user_id: user.id,
         recipe_id: recipe.id,
         recipe_name: recipe.name,
