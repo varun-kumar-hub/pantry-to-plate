@@ -24,7 +24,7 @@ export default function Search() {
   const [hasSearched, setHasSearched] = useState(false);
   const [favouriteIds, setFavouriteIds] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingImage, setIsLoadingImage] = useState(false);
+  const [loadingImages, setLoadingImages] = useState<Set<string>>(new Set());
   
   // New state for varieties flow
   const [searchState, setSearchState] = useState<SearchState>('initial');
@@ -80,6 +80,33 @@ export default function Search() {
     }
   };
 
+  const generateImagesForVarieties = async (varietiesList: DishVariety[]) => {
+    // Generate images for all varieties in parallel
+    const imagePromises = varietiesList.map(async (variety) => {
+      setLoadingImages(prev => new Set(prev).add(variety.variety_name));
+      
+      const imageUrl = await generateDishImage(variety.variety_name);
+      
+      setLoadingImages(prev => {
+        const next = new Set(prev);
+        next.delete(variety.variety_name);
+        return next;
+      });
+
+      return { varietyName: variety.variety_name, imageUrl };
+    });
+
+    const results = await Promise.all(imagePromises);
+
+    // Update varieties with generated images
+    setVarieties(prev => 
+      prev.map(v => {
+        const result = results.find(r => r.varietyName === v.variety_name);
+        return result?.imageUrl ? { ...v, image_url: result.imageUrl } : v;
+      })
+    );
+  };
+
   const handleSearch = async () => {
     if (!searchQuery.trim()) {
       toast({
@@ -122,12 +149,25 @@ export default function Search() {
 
       if (data.varieties && data.varieties.length > 0) {
         setVarieties(data.varieties);
+        setIsLoading(false);
+        
         toast({
           title: 'Varieties Found!',
-          description: `Found ${data.varieties.length} varieties of ${data.dish_name}`,
+          description: `Found ${data.varieties.length} varieties. Generating images...`,
         });
+
+        // Generate images for all varieties in background
+        generateImagesForVarieties(data.varieties);
       } else if (data.error) {
         throw new Error(data.error);
+      } else {
+        setIsLoading(false);
+        toast({
+          title: 'No varieties found',
+          description: 'Try a different dish name.',
+          variant: 'destructive',
+        });
+        setSearchState('initial');
       }
     } catch (error: any) {
       console.error('Error fetching varieties:', error);
@@ -137,7 +177,6 @@ export default function Search() {
         variant: 'destructive',
       });
       setSearchState('initial');
-    } finally {
       setIsLoading(false);
     }
   };
@@ -148,7 +187,7 @@ export default function Search() {
     setAiRecipe(null);
 
     try {
-      // Generate recipe first
+      // Generate recipe
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-recipe`,
         {
@@ -167,27 +206,19 @@ export default function Search() {
       const data = await response.json();
 
       if (data.recipe) {
-        // Set recipe without image first
-        setAiRecipe(data.recipe);
+        // Set recipe with the pre-generated image from variety
+        const recipeWithImage = {
+          ...data.recipe,
+          image_url: variety.image_url || null,
+        };
+        
+        setAiRecipe(recipeWithImage);
         setIsLoading(false);
         
         toast({
           title: 'Recipe Generated!',
-          description: `Created: ${data.recipe.recipe_name}. Generating image...`,
+          description: `Created: ${data.recipe.recipe_name}`,
         });
-
-        // Generate image in background
-        setIsLoadingImage(true);
-        const imageUrl = await generateDishImage(data.recipe.recipe_name);
-        
-        if (imageUrl) {
-          setAiRecipe(prev => prev ? { ...prev, image_url: imageUrl } : null);
-          toast({
-            title: 'Image Ready!',
-            description: 'Dish image has been generated.',
-          });
-        }
-        setIsLoadingImage(false);
       } else if (data.error) {
         throw new Error(data.error);
       }
@@ -375,14 +406,20 @@ export default function Search() {
 
         {/* Varieties Section */}
         {searchState === 'varieties' && varieties.length > 0 && (
-          <div className="max-w-3xl mx-auto mb-12">
+          <div className="max-w-4xl mx-auto mb-12">
             <div className="flex items-center gap-2 mb-6">
               <Sparkles className="h-5 w-5 text-accent" />
               <h2 className="font-display text-xl font-semibold text-foreground">
                 Varieties of {dishName}
               </h2>
+              {loadingImages.size > 0 && (
+                <span className="text-sm text-muted-foreground flex items-center gap-1">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Loading images...
+                </span>
+              )}
             </div>
-            <div className="grid sm:grid-cols-2 gap-4">
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {varieties.map((variety, index) => (
                 <div
                   key={variety.variety_name}
@@ -392,6 +429,7 @@ export default function Search() {
                   <VarietyCard
                     variety={variety}
                     onClick={() => handleVarietyClick(variety)}
+                    isLoadingImage={loadingImages.has(variety.variety_name)}
                   />
                 </div>
               ))}
@@ -412,7 +450,6 @@ export default function Search() {
               <AIRecipeCard 
                 recipe={aiRecipe} 
                 onClick={handleAIRecipeClick}
-                isLoadingImage={isLoadingImage}
               />
             </div>
             <p className="text-sm text-muted-foreground text-center mt-4">
