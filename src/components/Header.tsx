@@ -1,7 +1,19 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useExternalAuth } from '@/hooks/useExternalAuth';
-import { ChefHat, Heart, Calendar, ShoppingCart, LogOut, User } from 'lucide-react';
+import {
+  ChefHat,
+  Heart,
+  Calendar,
+  CheckCircle2,
+  Sparkles,
+  Loader2,
+  KeyRound,
+  Settings,
+  ShoppingCart,
+  LogOut,
+  User
+} from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -65,15 +77,20 @@ export function Header() {
           {user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="rounded-full">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                    <User className="h-4 w-4" />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="rounded-full h-10 w-10 border border-border bg-background hover:bg-accent/10 transition-all duration-300 shadow-sm hover:shadow-md"
+                >
+                  <div className="flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary-foreground text-primary-foreground font-bold text-lg">
+                    {user.email?.charAt(0).toUpperCase()}
                   </div>
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <div className="px-2 py-1.5">
-                  <p className="text-sm font-medium">{user.email}</p>
+              <DropdownMenuContent align="end" className="w-56 p-2 rounded-xl shadow-elevated border-border/50">
+                <div className="px-3 py-2 bg-muted/30 rounded-lg mb-2">
+                  <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Signed in as</p>
+                  <p className="text-sm font-semibold text-foreground truncate">{user.email}</p>
                 </div>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild className="md:hidden">
@@ -99,7 +116,14 @@ export function Header() {
                     Shopping List
                   </Link>
                 </DropdownMenuItem>
-                <DropdownMenuSeparator className="md:hidden" />
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link to="/settings" className="cursor-pointer">
+                    <Settings className="mr-2 h-4 w-4" />
+                    Settings
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer text-destructive">
                   <LogOut className="mr-2 h-4 w-4" />
                   Sign out

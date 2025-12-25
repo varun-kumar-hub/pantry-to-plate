@@ -9,6 +9,12 @@ export interface AIGeneratedRecipe {
   ingredients: { name: string; quantity: string }[];
   instructions: string[];
   image_url?: string;
+  nutrition?: {
+    calories: number;
+    protein: string;
+    carbs: string;
+    fats: string;
+  };
 }
 
 interface AIRecipeCardProps {
@@ -36,8 +42,8 @@ export function AIRecipeCard({ recipe, onClick, isLoadingImage }: AIRecipeCardPr
       {/* Image or placeholder */}
       <div className="aspect-[4/3] overflow-hidden">
         {recipe.image_url ? (
-          <img 
-            src={recipe.image_url} 
+          <img
+            src={recipe.image_url}
             alt={recipe.recipe_name}
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
           />

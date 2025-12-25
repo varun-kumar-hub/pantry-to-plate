@@ -6,8 +6,11 @@ interface AuthContextType {
   user: User | null;
   session: Session | null;
   loading: boolean;
-  signUp: (email: string, password: string, fullName?: string) => Promise<{ error: Error | null }>;
+  signUp: (email: string, password: string, fullName?: string) => Promise<{ data: any; error: Error | null }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signInWithGoogle: () => Promise<{ error: Error | null }>;
+  updatePassword: (password: string) => Promise<{ error: Error | null }>;
+  resetPasswordForEmail: (email: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
 }
 
@@ -40,8 +43,8 @@ export function ExternalAuthProvider({ children }: { children: ReactNode }) {
 
   const signUp = async (email: string, password: string, fullName?: string) => {
     const redirectUrl = `${window.location.origin}/`;
-    
-    const { error } = await externalSupabase.auth.signUp({
+
+    const { data, error } = await externalSupabase.auth.signUp({
       email,
       password,
       options: {
@@ -51,7 +54,7 @@ export function ExternalAuthProvider({ children }: { children: ReactNode }) {
         },
       },
     });
-    return { error };
+    return { data, error };
   };
 
   const signIn = async (email: string, password: string) => {
@@ -62,12 +65,54 @@ export function ExternalAuthProvider({ children }: { children: ReactNode }) {
     return { error };
   };
 
+  const updatePassword = async (password: string) => {
+    const { error } = await externalSupabase.auth.updateUser({
+      password: password
+    });
+    return { error };
+  };
+
+  const resetPasswordForEmail = async (email: string) => {
+    const { error } = await externalSupabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    return { error };
+  };
+
+  const signInWithGoogle = async () => {
+    const { error } = await externalSupabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/`,
+      },
+    });
+    return { error };
+  };
+
   const signOut = async () => {
-    await externalSupabase.auth.signOut();
+    try {
+      await externalSupabase.auth.signOut();
+    } catch (error) {
+      console.error('Error signing out:', error);
+    } finally {
+      // Force clear state to ensure UI updates immediately
+      setUser(null);
+      setSession(null);
+    }
   };
 
   return (
-    <ExternalAuthContext.Provider value={{ user, session, loading, signUp, signIn, signOut }}>
+    <ExternalAuthContext.Provider value={{
+      user,
+      session,
+      loading,
+      signUp,
+      signIn,
+      signInWithGoogle,
+      updatePassword,
+      resetPasswordForEmail,
+      signOut
+    }}>
       {children}
     </ExternalAuthContext.Provider>
   );

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Header } from '@/components/Header';
 import { RecipeCard } from '@/components/RecipeCard';
@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { useExternalAuth } from '@/hooks/useExternalAuth';
 import { useToast } from '@/hooks/use-toast';
 import { externalSupabase } from '@/integrations/external-supabase/client';
-import { recipes, searchRecipes, Recipe } from '@/data/recipes';
+import { recipes, Recipe } from '@/data/recipes';
 import { getFallbackVarieties, findStrictMatch } from '@/data/dishVarieties';
 import { Search as SearchIcon, X, Sparkles, ChefHat, Loader2, ArrowLeft } from 'lucide-react';
 
@@ -33,6 +33,13 @@ export default function Search() {
   const [varieties, setVarieties] = useState<DishVariety[]>([]);
   const [aiRecipe, setAiRecipe] = useState<AIGeneratedRecipe | null>(null);
 
+  // New Search Mode state
+  const [searchMode, setSearchMode] = useState<'dish' | 'pantry'>('dish');
+
+  // Dietary Preferences
+  const [vegetarianOnly, setVegetarianOnly] = useState(false);
+  const [nonVegetarianOnly, setNonVegetarianOnly] = useState(false);
+
   useEffect(() => {
     if (!authLoading && !user) {
       navigate('/auth');
@@ -40,6 +47,12 @@ export default function Search() {
   }, [user, authLoading, navigate]);
 
   useEffect(() => {
+    // Load local settings
+    const vegPref = localStorage.getItem('vegetarianOnly') === 'true';
+    const nonVegPref = localStorage.getItem('nonVegetarianOnly') === 'true';
+    setVegetarianOnly(vegPref);
+    setNonVegetarianOnly(nonVegPref);
+
     if (user) {
       loadFavourites();
     }
@@ -123,8 +136,10 @@ export default function Search() {
   const handleSearch = async () => {
     if (!searchQuery.trim()) {
       toast({
-        title: 'Enter a dish name',
-        description: 'Please enter a dish name to find varieties.',
+        title: searchMode === 'dish' ? 'Enter a dish name' : 'Enter ingredients',
+        description: searchMode === 'dish'
+          ? 'Please enter a dish name to find varieties.'
+          : 'Please enter ingredients to find what you can cook.',
         variant: 'destructive',
       });
       return;
@@ -137,35 +152,65 @@ export default function Search() {
     setIsLoading(true);
     setSearchState('varieties');
 
-    // RULE 9 Implementation: Check DB first!
-    const dbMatch = findStrictMatch(searchQuery.trim());
+    // Rule 9 Logic (Database First) - ONLY for Dish Mode
+    if (searchMode === 'dish') {
+      const dbMatch = findStrictMatch(searchQuery.trim());
 
-    if (dbMatch) {
-      // Deterministic DB Match Found
-      const varietiesWithType: DishVariety[] = dbMatch.map(v => ({
-        variety_name: v.variety_name,
-        short_description: v.short_description,
-        image_url: undefined // Will be fetched
-      }));
+      if (dbMatch) {
+        // Deterministic DB Match Found
+        let varietiesWithType: DishVariety[] = dbMatch.map(v => ({
+          variety_name: v.variety_name,
+          short_description: v.short_description,
+          image_url: undefined, // Will be fetched
+          diet: v.diet // Carry over diet type
+        }));
 
-      setVarieties(varietiesWithType);
-      toast({
-        title: 'Found in Cookbook!',
-        description: `Found ${varietiesWithType.length} varieties. Fetching images...`,
-      });
-      fetchImagesForVarieties(varietiesWithType);
-      setIsLoading(false); // Done!
-      return;
+        // Apply Dietary Filter
+        if (vegetarianOnly) {
+          varietiesWithType = varietiesWithType.filter(v => v.diet === 'veg');
+        } else if (nonVegetarianOnly) {
+          varietiesWithType = varietiesWithType.filter(v => v.diet === 'non-veg');
+        }
+
+        if (varietiesWithType.length > 0) {
+          setVarieties(varietiesWithType);
+          toast({
+            title: 'Found in Cookbook!',
+            description: `Found ${varietiesWithType.length} varieties. Fetching images...`,
+          });
+          fetchImagesForVarieties(varietiesWithType);
+          setIsLoading(false); // Done!
+          return;
+        } else {
+          // If filtered list is empty (e.g. searching "Chicken" with Veg Only mode), fall through to AI
+          console.log("Filtered all local results based on diet. Trying AI...");
+        }
+      }
     }
 
-    // If NO valid database match exists, trigger AI (Rule 9)
+    // AI Logic (Fallback for Dish Mode OR Primary for Pantry Mode)
     try {
-      // Use Gemini to generate varieties
       const GEMINI_API_KEY = 'AIzaSyA9Foy_jSrzp7sBwkiXuGBvx3wRy3FWNP8';
-      const prompt = `Generate 6 popular and distinct varieties of the dish "${searchQuery.trim()}". 
-      For each, provide a 'variety_name' and 'short_description'. 
-      Return a valid JSON object with a 'varieties' array. 
-      Example structure: { "varieties": [{ "variety_name": "Name", "short_description": "Desc" }] }`;
+
+      let dietPrompt = "";
+      if (vegetarianOnly) dietPrompt = "strictly VEGETARIAN";
+      else if (nonVegetarianOnly) dietPrompt = "strictly NON-VEGETARIAN";
+
+      let prompt = "";
+
+      if (searchMode === 'dish') {
+        prompt = `Generate 6 popular and distinct ${dietPrompt} varieties of the dish "${searchQuery.trim()}". 
+         For each, provide a 'variety_name' and 'short_description'. 
+         Return a valid JSON object with a 'varieties' array. 
+         Example structure: { "varieties": [{ "variety_name": "Name", "short_description": "Desc" }] }`;
+      } else {
+        // Pantry Mode Prompt
+        prompt = `I have these ingredients: "${searchQuery.trim()}". 
+         Suggest 6 distinct dishes I can cook using mainly these ingredients. ${dietPrompt}.
+         For each, provide a 'variety_name' (the name of the dish) and 'short_description' (why it works with these ingredients).
+         Return a valid JSON object with a 'varieties' array. 
+         Example structure: { "varieties": [{ "variety_name": "Name", "short_description": "Desc" }] }`;
+      }
 
       // Retry helper
       const fetchWithRetry = async (url: string, options: RequestInit, retries = 2) => {
@@ -205,12 +250,44 @@ export default function Search() {
 
       try {
         const text = data.candidates[0].content.parts[0].text;
-        const jsonString = text.replace(/```json\n|\n```/g, '').replace(/```/g, '');
-        varietiesData = JSON.parse(jsonString);
+        console.log("Gemini Raw Response:", text); // Debugging
+
+        // Robust JSON extraction
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          varietiesData = JSON.parse(jsonMatch[0]);
+        } else {
+          throw new Error('No JSON object found in response');
+        }
       } catch (e) {
         console.error('Failed to parse Gemini varieties response:', e);
-        // Fallback to static data if parsing fails
-        varietiesData = { varieties: getFallbackVarieties(searchQuery.trim()) || [] };
+        // Fallback Logic
+        if (searchMode === 'dish') {
+          // Dish Mode Fallback: Check local data
+          let fb = getFallbackVarieties(searchQuery.trim()) || [];
+          if (vegetarianOnly) fb = fb.filter(v => v.diet === 'veg');
+          if (nonVegetarianOnly) fb = fb.filter(v => v.diet === 'non-veg');
+          varietiesData = { varieties: fb };
+        } else {
+          // Pantry Mode Fallback: Provide generic suggestions based on common ingredients
+          // This ensures the user ALWAYS sees something instead of an error
+          const genericFallback = [
+            { variety_name: "Fried Rice", short_description: "A classic way to use leftover rice and vegetables.", diet: "veg" },
+            { variety_name: "Vegetable Stir Fry", short_description: "Quick, healthy, and uses whatever veggies you have.", diet: "veg" },
+            { variety_name: "Simple Curry", short_description: "A basic curry base that works with almost any protein or veg.", diet: "veg" },
+            { variety_name: "Omelette", short_description: "Perfect if you have eggs and some basic veggies.", diet: "non-veg" }
+          ];
+
+          let fb = genericFallback;
+          if (vegetarianOnly) fb = fb.filter(v => v.diet === 'veg');
+          if (nonVegetarianOnly) fb = fb.filter(v => v.diet === 'non-veg');
+
+          varietiesData = { varieties: fb };
+          toast({
+            title: "Offline Mode",
+            description: "Couldn't reach AI. Showing generic ideas for your ingredients.",
+          });
+        }
       }
 
       const varietiesList = varietiesData.varieties || [];
@@ -225,38 +302,81 @@ export default function Search() {
         setVarieties(varietiesWithType);
 
         toast({
-          title: 'Varieties Found!',
-          description: `Found ${varietiesWithType.length} varieties. Fetching images...`,
+          title: searchMode === 'dish' ? 'Varieties Found!' : 'Dishes Suggested!',
+          description: `Found ${varietiesWithType.length} options. Fetching images...`,
         });
 
         // Fetch real images for all varieties
-        fetchImagesForVarieties(varietiesWithType, searchQuery.trim());
+        // For Pantry mode, fallback term defaults to first ingredient to help search
+        const fallbackTerm = searchMode === 'pantry' ? searchQuery.split(',')[0].trim() : searchQuery.trim();
+        fetchImagesForVarieties(varietiesWithType, fallbackTerm);
       } else {
-        // Try completely static fallback as last resort
-        const fallbackData = getFallbackVarieties(searchQuery.trim());
-        if (fallbackData) {
-          const varietiesWithType = fallbackData.map(v => ({
-            variety_name: v.variety_name,
-            short_description: v.short_description,
-          }));
-          setVarieties(varietiesWithType);
-          fetchImagesForVarieties(varietiesWithType);
+        // Fallback logic mostly applies to Dish Mode
+        if (searchMode === 'dish') {
+          let fallbackData = getFallbackVarieties(searchQuery.trim());
+
+          if (fallbackData) {
+            // Apply Filters to fallback data
+            if (vegetarianOnly) {
+              fallbackData = fallbackData.filter(v => v.diet === 'veg');
+            } else if (nonVegetarianOnly) {
+              fallbackData = fallbackData.filter(v => v.diet === 'non-veg');
+            }
+          }
+
+          if (fallbackData && fallbackData.length > 0) {
+            const varietiesWithType = fallbackData.map(v => ({
+              variety_name: v.variety_name,
+              short_description: v.short_description,
+            }));
+            setVarieties(varietiesWithType);
+            fetchImagesForVarieties(varietiesWithType);
+          } else {
+            toast({
+              title: 'No varieties found',
+              description: vegetarianOnly
+                ? 'No vegetarian varieties found for this dish.'
+                : nonVegetarianOnly
+                  ? 'No non-vegetarian varieties found for this dish.'
+                  : 'Try a more general dish name.',
+            });
+            setSearchState('initial');
+          }
         } else {
           toast({
-            title: 'No varieties found',
-            description: 'Try a more general dish name.',
-            // variant: 'destructive', // Removed to use default (neutral/theme) color
+            title: 'No suggestions',
+            description: 'Could not find dishes with these ingredients. Try simpler ones.'
           });
           setSearchState('initial');
         }
       }
     } catch (error: any) {
       console.error('Error fetching varieties, defaulting to offline data:', error);
-      // Silent fallback - don't disturb the user with an error toast
 
-      // Fallback on error
-      const fallbackData = getFallbackVarieties(searchQuery.trim());
+      let fallbackData;
+
+      if (searchMode === 'dish') {
+        fallbackData = getFallbackVarieties(searchQuery.trim());
+      } else {
+        // Pantry Mode Fallback - Same generic list
+        fallbackData = [
+          { variety_name: "Fried Rice", short_description: "A classic way to use leftover rice and vegetables.", diet: "veg" },
+          { variety_name: "Vegetable Stir Fry", short_description: "Quick, healthy, and uses whatever veggies you have.", diet: "veg" },
+          { variety_name: "Simple Curry", short_description: "A basic curry base that works with almost any protein or veg.", diet: "veg" },
+          { variety_name: "Omelette", short_description: "Perfect if you have eggs and some basic veggies.", diet: "non-veg" }
+        ] as any;
+      }
+
       if (fallbackData) {
+        // Apply Filters to fallback data
+        if (vegetarianOnly) {
+          fallbackData = fallbackData.filter(v => v.diet === 'veg');
+        } else if (nonVegetarianOnly) {
+          fallbackData = fallbackData.filter(v => v.diet === 'non-veg');
+        }
+      }
+
+      if (fallbackData && fallbackData.length > 0) {
         const varietiesWithType = fallbackData.map(v => ({
           variety_name: v.variety_name,
           short_description: v.short_description,
@@ -268,7 +388,6 @@ export default function Search() {
         toast({
           title: 'No results found',
           description: 'Try a more general dish name.',
-          // variant: 'destructive', // Removed to use default (neutral/theme) color
         });
         setSearchState('initial');
       }
@@ -282,7 +401,13 @@ export default function Search() {
 
     try {
       const GEMINI_API_KEY = 'AIzaSyA9Foy_jSrzp7sBwkiXuGBvx3wRy3FWNP8';
-      const prompt = `Generate a recipe for ${variety.variety_name}. Return a valid JSON object (no markdown formatting) with the following structure:
+
+      let dietInstruction = "";
+      if (vegetarianOnly) dietInstruction = "Make this recipe purely Vegetarian (no meat, no eggs if strictly veg).";
+      else if (nonVegetarianOnly) dietInstruction = "Make this recipe Non-Vegetarian (include meat/fish/egg).";
+
+
+      const prompt = `Generate a recipe for ${variety.variety_name}. ${dietInstruction} Return a valid JSON object (no markdown formatting) with the following structure:
       {
         "recipe_name": "${variety.variety_name}",
         "cooking_time_minutes": number,
@@ -290,7 +415,8 @@ export default function Search() {
         "servings": number,
         "ingredients": [{"name": string, "quantity": string}],
         "instructions": [string],
-        "description": string
+        "description": string,
+        "nutrition": { "calories": number, "protein": "XXg", "carbs": "XXg", "fats": "XXg" }
       }`;
 
       const response = await fetch(
@@ -454,7 +580,26 @@ export default function Search() {
     }
   };
 
-  const popularRecipes = recipes.slice(0, 6);
+  // Randomize popular recipes so different users see different suggestions
+  const popularRecipes = useMemo(() => {
+    // 1. Filter ALL recipes first based on diet
+    let filtered = [...recipes];
+
+    // Safety check - force refresh from storage if memo runs but effect hasn't
+    const vegPref = localStorage.getItem('vegetarianOnly') === 'true';
+    const nonVegPref = localStorage.getItem('nonVegetarianOnly') === 'true';
+
+    // We can use state here because useMemo will re-run when state changes
+    if (vegetarianOnly || vegPref) {
+      filtered = filtered.filter(r => r.diet === 'veg');
+    } else if (nonVegetarianOnly || nonVegPref) {
+      filtered = filtered.filter(r => r.diet === 'non-veg');
+    }
+
+    // 2. Then shuffle and slice
+    return filtered.sort(() => 0.5 - Math.random()).slice(0, 6);
+  }, [vegetarianOnly, nonVegetarianOnly]); // Add dependencies to re-run on preference change
+
   const displayRecipes = hasSearched ? searchResults : popularRecipes;
 
   if (authLoading) {
@@ -479,15 +624,45 @@ export default function Search() {
             <p className="text-muted-foreground">
               Enter a dish name — we'll show you popular varieties to choose from!
             </p>
+            {/* Active Filters Indicator */}
+            {(vegetarianOnly || nonVegetarianOnly) && (
+              <div className="mt-4 inline-flex items-center gap-2 px-3 py-1 bg-primary/10 text-primary rounded-full text-sm font-medium animate-in fade-in">
+                <ChefHat className="h-4 w-4" />
+                <span>
+                  {vegetarianOnly ? "Vegetarian Only Mode Active 🥦" : "Non-Vegetarian Only Mode Active 🍗"}
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="relative">
+            {/* Search Mode Toggles */}
+            <div className="flex justify-center gap-4 mb-4">
+              <button
+                onClick={() => setSearchMode('dish')}
+                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${searchMode === 'dish'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                  }`}
+              >
+                Find a Dish
+              </button>
+              <button
+                onClick={() => setSearchMode('pantry')}
+                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${searchMode === 'pantry'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                  }`}
+              >
+                Pantry Search (Ingredients)
+              </button>
+            </div>
             <div className="flex gap-2">
               <div className="relative flex-1">
                 <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
                 <Input
                   type="text"
-                  placeholder="e.g., biryani, pizza, pasta, curry..."
+                  placeholder={searchMode === 'dish' ? "e.g., biryani, pizza, pasta..." : "e.g., chicken, onions, tomatoes, rice..."}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyPress={handleKeyPress}
@@ -524,7 +699,7 @@ export default function Search() {
                 ) : (
                   <>
                     <Sparkles className="h-5 w-5" />
-                    Find Varieties
+                    {searchMode === 'dish' ? 'Find Varieties' : 'Suggest Dishes'}
                   </>
                 )}
               </Button>
@@ -568,6 +743,11 @@ export default function Search() {
               <Sparkles className="h-5 w-5 text-accent" />
               <h2 className="font-display text-xl font-semibold text-foreground">
                 Varieties of {dishName}
+                {(vegetarianOnly || nonVegetarianOnly) && (
+                  <span className="text-sm font-normal text-muted-foreground ml-2">
+                    ({vegetarianOnly ? 'Vegetarian' : 'Non-Veg'})
+                  </span>
+                )}
               </h2>
               {loadingImages.size > 0 && (
                 <span className="text-sm text-muted-foreground flex items-center gap-1">
@@ -674,7 +854,15 @@ export default function Search() {
                   Browse All Recipes
                 </Button>
               </div>
-            ) : null}
+            ) : (
+              <div className="text-center py-16">
+                <p className="text-muted-foreground">
+                  {vegetarianOnly
+                    ? "No popular vegetarian recipes found. Search for something else!"
+                    : "No popular non-vegetarian recipes found. Search for something else!"}
+                </p>
+              </div>
+            )}
           </div>
         )}
       </main>

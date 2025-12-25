@@ -4,6 +4,7 @@ export interface DishVariety {
   variety_name: string;
   short_description: string;
   image_url?: string;
+  diet?: 'veg' | 'non-veg';
 }
 
 interface VarietyCardProps {
@@ -21,8 +22,8 @@ export function VarietyCard({ variety, onClick, isLoadingImage }: VarietyCardPro
       {/* Image section */}
       <div className="aspect-[16/9] overflow-hidden bg-gradient-to-br from-primary/10 to-accent/10">
         {variety.image_url ? (
-          <img 
-            src={variety.image_url} 
+          <img
+            src={variety.image_url}
             alt={variety.variety_name}
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
           />
@@ -36,7 +37,7 @@ export function VarietyCard({ variety, onClick, isLoadingImage }: VarietyCardPro
           </div>
         )}
       </div>
-      
+
       {/* Content section */}
       <div className="p-4">
         <h3 className="font-display text-lg font-semibold text-foreground mb-1 group-hover:text-primary transition-colors line-clamp-1">

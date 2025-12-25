@@ -15,7 +15,8 @@ import {
   Calendar,
   CheckCircle2,
   Sparkles,
-  Loader2
+  Loader2,
+  PlayCircle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -40,6 +41,12 @@ interface AIGeneratedRecipe {
   ingredients: { name: string; quantity: string }[];
   instructions: string[];
   image_url?: string;
+  nutrition?: {
+    calories: number;
+    protein: string;
+    carbs: string;
+    fats: string;
+  };
 }
 
 const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
@@ -362,23 +369,34 @@ export default function RecipeDetail() {
             </div>
 
             {/* Actions - now available for all recipes */}
-            <div className="flex gap-3 mb-8">
-              <Button
-                variant={isFavourite ? 'default' : 'outline'}
-                className="flex-1 gap-2"
-                onClick={toggleFavourite}
-              >
-                <Heart className={cn("h-5 w-5", isFavourite && "fill-current")} />
-                {isFavourite ? 'Saved' : 'Save to Favourites'}
-              </Button>
+            <div className="flex flex-col gap-3 mb-8">
               <Button
                 variant="default"
-                className="flex-1 gap-2"
-                onClick={() => setShowPlannerModal(true)}
+                size="lg"
+                className="w-full gap-2 text-lg h-14 bg-green-600 hover:bg-green-700 text-white shadow-lg transform hover:scale-[1.02] transition-all"
+                onClick={() => navigate(`/cooking-mode/${isAIRecipe ? 'ai-generated' : recipe?.id}`)}
               >
-                <Calendar className="h-5 w-5" />
-                Add to Meal Plan
+                <PlayCircle className="h-6 w-6" />
+                Start Cooking Mode
               </Button>
+              <div className="flex gap-3">
+                <Button
+                  variant={isFavourite ? 'default' : 'outline'}
+                  className="flex-1 gap-2"
+                  onClick={toggleFavourite}
+                >
+                  <Heart className={cn("h-5 w-5", isFavourite && "fill-current")} />
+                  {isFavourite ? 'Saved' : 'Save'}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="flex-1 gap-2"
+                  onClick={() => setShowPlannerModal(true)}
+                >
+                  <Calendar className="h-5 w-5" />
+                  Plan
+                </Button>
+              </div>
             </div>
 
             {/* Ingredients */}
@@ -407,6 +425,37 @@ export default function RecipeDetail() {
             <p className="text-lg text-muted-foreground mb-6">
               {displayDescription}
             </p>
+
+            {/* Nutrition Information (AI Only) */}
+            {isAIRecipe && aiRecipe?.nutrition && (
+              <div className="mb-8 p-4 rounded-xl bg-accent/5 border border-accent/20">
+                <div className="flex items-center gap-2 mb-3">
+                  <Sparkles className="h-4 w-4 text-accent" />
+                  <h3 className="font-semibold text-accent">Nutritional Analysis</h3>
+                </div>
+                <div className="grid grid-cols-4 gap-4 text-center">
+                  <div className="p-2 rounded-lg bg-background shadow-sm">
+                    <p className="text-xs text-muted-foreground uppercase font-bold tracking-wider mb-1">Cals</p>
+                    <p className="font-display font-bold text-foreground">{aiRecipe.nutrition.calories}</p>
+                  </div>
+                  <div className="p-2 rounded-lg bg-background shadow-sm">
+                    <p className="text-xs text-muted-foreground uppercase font-bold tracking-wider mb-1">Protein</p>
+                    <p className="font-display font-bold text-foreground">{aiRecipe.nutrition.protein}</p>
+                  </div>
+                  <div className="p-2 rounded-lg bg-background shadow-sm">
+                    <p className="text-xs text-muted-foreground uppercase font-bold tracking-wider mb-1">Carbs</p>
+                    <p className="font-display font-bold text-foreground">{aiRecipe.nutrition.carbs}</p>
+                  </div>
+                  <div className="p-2 rounded-lg bg-background shadow-sm">
+                    <p className="text-xs text-muted-foreground uppercase font-bold tracking-wider mb-1">Fats</p>
+                    <p className="font-display font-bold text-foreground">{aiRecipe.nutrition.fats}</p>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground mt-3 text-center italic">
+                  *AI-estimated values. Approximate only.
+                </p>
+              </div>
+            )}
 
             <div className="flex items-center gap-6 mb-8">
               <div className="flex items-center gap-2 text-foreground">

@@ -7,6 +7,7 @@ export interface Recipe {
   cookingTime: number;
   difficulty: 'Easy' | 'Medium' | 'Hard';
   category: 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack' | 'Dessert';
+  diet: 'veg' | 'non-veg';
   image: string;
   servings: number;
 }
@@ -37,6 +38,7 @@ export const recipes: Recipe[] = [
     cookingTime: 30,
     difficulty: 'Medium',
     category: 'Breakfast',
+    diet: 'veg',
     image: 'https://images.unsplash.com/photo-1630383249896-424e482df921?w=800',
     servings: 4,
   },
@@ -65,6 +67,7 @@ export const recipes: Recipe[] = [
     cookingTime: 25,
     difficulty: 'Easy',
     category: 'Lunch',
+    diet: 'veg',
     image: 'https://images.unsplash.com/photo-1599487488170-d11ec9c172f0?w=800',
     servings: 4,
   },
@@ -95,6 +98,7 @@ export const recipes: Recipe[] = [
     cookingTime: 90,
     difficulty: 'Hard',
     category: 'Lunch',
+    diet: 'non-veg',
     image: 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=800',
     servings: 6,
   },
@@ -125,6 +129,7 @@ export const recipes: Recipe[] = [
     cookingTime: 35,
     difficulty: 'Easy',
     category: 'Lunch',
+    diet: 'veg',
     image: 'https://images.unsplash.com/photo-1546833999-b9f581a1996d?w=800',
     servings: 4,
   },
@@ -155,6 +160,7 @@ export const recipes: Recipe[] = [
     cookingTime: 40,
     difficulty: 'Medium',
     category: 'Dinner',
+    diet: 'veg',
     image: 'https://images.unsplash.com/photo-1594020293008-5f99f60bd4e0?w=800',
     servings: 4,
   },
@@ -185,6 +191,7 @@ export const recipes: Recipe[] = [
     cookingTime: 25,
     difficulty: 'Easy',
     category: 'Lunch',
+    diet: 'veg',
     image: 'https://images.unsplash.com/photo-1596797038530-2c107229654b?w=800',
     servings: 4,
   },
@@ -214,6 +221,7 @@ export const recipes: Recipe[] = [
     cookingTime: 20,
     difficulty: 'Easy',
     category: 'Snack',
+    diet: 'veg',
     image: 'https://images.unsplash.com/photo-1601050690597-df0568f70950?w=800',
     servings: 4,
   },
@@ -244,6 +252,7 @@ export const recipes: Recipe[] = [
     cookingTime: 30,
     difficulty: 'Medium',
     category: 'Dinner',
+    diet: 'non-veg',
     image: 'https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=800',
     servings: 4,
   },
@@ -274,6 +283,7 @@ export const recipes: Recipe[] = [
     cookingTime: 40,
     difficulty: 'Medium',
     category: 'Dessert',
+    diet: 'veg',
     image: 'https://images.unsplash.com/photo-1551024506-0bccd828d307?w=800',
     servings: 6,
   },
@@ -304,6 +314,7 @@ export const recipes: Recipe[] = [
     cookingTime: 20,
     difficulty: 'Easy',
     category: 'Breakfast',
+    diet: 'veg',
     image: 'https://images.unsplash.com/photo-1567337710282-00832b415979?w=800',
     servings: 4,
   },
@@ -334,6 +345,7 @@ export const recipes: Recipe[] = [
     cookingTime: 50,
     difficulty: 'Medium',
     category: 'Dinner',
+    diet: 'non-veg',
     image: 'https://images.unsplash.com/photo-1603894584373-5ac82b2ae398?w=800',
     servings: 4,
   },
@@ -363,6 +375,7 @@ export const recipes: Recipe[] = [
     cookingTime: 20,
     difficulty: 'Easy',
     category: 'Breakfast',
+    diet: 'veg',
     image: 'https://images.unsplash.com/photo-1630383249896-424e482df921?w=800',
     servings: 4,
   },
@@ -370,13 +383,13 @@ export const recipes: Recipe[] = [
 
 export function searchRecipes(query: string): Recipe[] {
   const searchTerms = query.toLowerCase().split(',').map(term => term.trim()).filter(Boolean);
-  
+
   if (searchTerms.length === 0) return [];
 
   const scored = recipes.map(recipe => {
     const recipeIngredients = recipe.ingredients.map(i => i.name.toLowerCase());
     const recipeName = recipe.name.toLowerCase();
-    
+
     let matchCount = 0;
     let nameMatch = false;
 
