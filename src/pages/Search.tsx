@@ -98,7 +98,7 @@ export default function Search() {
         user_id: user.id,
         recipe_id: recipe.id,
         recipe_name: recipe.name,
-        recipe_data: recipe as unknown as Record<string, unknown>,
+        recipe_data: JSON.parse(JSON.stringify(recipe)),
       }]);
 
       setFavouriteIds(prev => new Set(prev).add(recipe.id));

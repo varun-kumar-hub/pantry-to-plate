@@ -102,7 +102,7 @@ export default function RecipeDetail() {
         user_id: user.id,
         recipe_id: recipe.id,
         recipe_name: recipe.name,
-        recipe_data: recipe as unknown as Record<string, unknown>,
+        recipe_data: JSON.parse(JSON.stringify(recipe)),
       }]);
 
       setIsFavourite(true);
@@ -129,7 +129,7 @@ export default function RecipeDetail() {
       meal_type: selectedMeal,
       recipe_id: recipe.id,
       recipe_name: recipe.name,
-      recipe_data: recipe as unknown as Record<string, unknown>,
+      recipe_data: JSON.parse(JSON.stringify(recipe)),
     }], {
       onConflict: 'user_id,day_of_week,meal_type',
     });
