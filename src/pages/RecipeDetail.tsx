@@ -38,6 +38,7 @@ interface AIGeneratedRecipe {
   servings: number;
   ingredients: { name: string; quantity: string }[];
   instructions: string[];
+  image_url?: string;
 }
 
 const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
@@ -201,7 +202,7 @@ export default function RecipeDetail() {
   const displayDifficulty = isAIRecipe ? aiRecipe?.difficulty : recipe?.difficulty;
   const displayIngredients = isAIRecipe ? aiRecipe?.ingredients : recipe?.ingredients;
   const displayInstructions = isAIRecipe ? aiRecipe?.instructions : recipe?.instructions;
-  const displayImage = isAIRecipe ? null : recipe?.image;
+  const displayImage = isAIRecipe ? aiRecipe?.image_url : recipe?.image;
   const displayCategory = isAIRecipe ? 'AI Generated' : recipe?.category;
   const displayDescription = isAIRecipe ? `AI-generated recipe for ${aiRecipe?.recipe_name}` : recipe?.description;
 

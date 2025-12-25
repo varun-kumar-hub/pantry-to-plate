@@ -24,6 +24,7 @@ export default function Search() {
   const [hasSearched, setHasSearched] = useState(false);
   const [favouriteIds, setFavouriteIds] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingImage, setIsLoadingImage] = useState(false);
   
   // New state for varieties flow
   const [searchState, setSearchState] = useState<SearchState>('initial');
@@ -51,6 +52,31 @@ export default function Search() {
     
     if (data) {
       setFavouriteIds(new Set(data.map(f => f.recipe_id)));
+    }
+  };
+
+  const generateDishImage = async (dishName: string): Promise<string | null> => {
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-dish-image`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ dish_name: dishName }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.image_url || null;
+    } catch (error) {
+      console.error('Error generating image:', error);
+      return null;
     }
   };
 
@@ -122,6 +148,7 @@ export default function Search() {
     setAiRecipe(null);
 
     try {
+      // Generate recipe first
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-recipe`,
         {
@@ -140,11 +167,27 @@ export default function Search() {
       const data = await response.json();
 
       if (data.recipe) {
+        // Set recipe without image first
         setAiRecipe(data.recipe);
+        setIsLoading(false);
+        
         toast({
           title: 'Recipe Generated!',
-          description: `Created: ${data.recipe.recipe_name}`,
+          description: `Created: ${data.recipe.recipe_name}. Generating image...`,
         });
+
+        // Generate image in background
+        setIsLoadingImage(true);
+        const imageUrl = await generateDishImage(data.recipe.recipe_name);
+        
+        if (imageUrl) {
+          setAiRecipe(prev => prev ? { ...prev, image_url: imageUrl } : null);
+          toast({
+            title: 'Image Ready!',
+            description: 'Dish image has been generated.',
+          });
+        }
+        setIsLoadingImage(false);
       } else if (data.error) {
         throw new Error(data.error);
       }
@@ -156,7 +199,6 @@ export default function Search() {
         variant: 'destructive',
       });
       setSearchState('varieties');
-    } finally {
       setIsLoading(false);
     }
   };
@@ -367,7 +409,11 @@ export default function Search() {
               </h2>
             </div>
             <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <AIRecipeCard recipe={aiRecipe} onClick={handleAIRecipeClick} />
+              <AIRecipeCard 
+                recipe={aiRecipe} 
+                onClick={handleAIRecipeClick}
+                isLoadingImage={isLoadingImage}
+              />
             </div>
             <p className="text-sm text-muted-foreground text-center mt-4">
               Click the card to view full recipe details

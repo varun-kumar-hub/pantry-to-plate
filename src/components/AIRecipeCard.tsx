@@ -1,4 +1,4 @@
-import { Clock, Users, Sparkles } from 'lucide-react';
+import { Clock, Users, Sparkles, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export interface AIGeneratedRecipe {
@@ -8,14 +8,16 @@ export interface AIGeneratedRecipe {
   servings: number;
   ingredients: { name: string; quantity: string }[];
   instructions: string[];
+  image_url?: string;
 }
 
 interface AIRecipeCardProps {
   recipe: AIGeneratedRecipe;
   onClick: () => void;
+  isLoadingImage?: boolean;
 }
 
-export function AIRecipeCard({ recipe, onClick }: AIRecipeCardProps) {
+export function AIRecipeCard({ recipe, onClick, isLoadingImage }: AIRecipeCardProps) {
   const difficultyColor: Record<string, string> = {
     easy: 'bg-primary/10 text-primary',
     medium: 'bg-golden/20 text-amber-700',
@@ -31,14 +33,31 @@ export function AIRecipeCard({ recipe, onClick }: AIRecipeCardProps) {
       onClick={onClick}
       className="group relative overflow-hidden rounded-2xl bg-card shadow-card transition-all duration-300 hover:shadow-elevated hover:-translate-y-1 cursor-pointer"
     >
-      {/* AI-generated gradient background instead of image */}
-      <div className="aspect-[4/3] overflow-hidden bg-gradient-to-br from-primary/20 via-accent/10 to-secondary flex items-center justify-center">
-        <div className="text-center p-4">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/20 mb-3">
-            <Sparkles className="w-8 h-8 text-primary" />
+      {/* Image or placeholder */}
+      <div className="aspect-[4/3] overflow-hidden">
+        {recipe.image_url ? (
+          <img 
+            src={recipe.image_url} 
+            alt={recipe.recipe_name}
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+          />
+        ) : (
+          <div className="w-full h-full bg-gradient-to-br from-primary/20 via-accent/10 to-secondary flex items-center justify-center">
+            {isLoadingImage ? (
+              <div className="text-center p-4">
+                <Loader2 className="w-8 h-8 text-primary animate-spin mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground font-medium">Generating image...</p>
+              </div>
+            ) : (
+              <div className="text-center p-4">
+                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/20 mb-3">
+                  <Sparkles className="w-8 h-8 text-primary" />
+                </div>
+                <p className="text-sm text-muted-foreground font-medium">AI Generated</p>
+              </div>
+            )}
           </div>
-          <p className="text-sm text-muted-foreground font-medium">AI Generated</p>
-        </div>
+        )}
         <div className="absolute inset-0 bg-gradient-to-t from-foreground/60 via-transparent to-transparent" />
       </div>
 
