@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Header } from '@/components/Header';
 import { RecipeCard } from '@/components/RecipeCard';
+import { AIRecipeGenerator } from '@/components/AIRecipeGenerator';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/hooks/useAuth';
@@ -185,6 +186,11 @@ export default function Search() {
               ))}
             </div>
           </div>
+        </div>
+
+        {/* AI Recipe Generator */}
+        <div className="max-w-4xl mx-auto mb-12">
+          <AIRecipeGenerator />
         </div>
 
         {/* Results Section */}
