@@ -6,15 +6,16 @@ import { useExternalAuth } from '@/hooks/useExternalAuth';
 import { useToast } from '@/hooks/use-toast';
 import { externalSupabase } from '@/integrations/external-supabase/client';
 import { getRecipeById, Recipe } from '@/data/recipes';
-import { 
-  ArrowLeft, 
-  Clock, 
-  Users, 
-  ChefHat, 
-  Heart, 
+import {
+  ArrowLeft,
+  Clock,
+  Users,
+  ChefHat,
+  Heart,
   Calendar,
   CheckCircle2,
-  Sparkles
+  Sparkles,
+  Loader2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -75,8 +76,8 @@ export default function RecipeDetail() {
   useEffect(() => {
     if (id) {
       if (isAIRecipe) {
-        // Load AI recipe from sessionStorage
-        const storedRecipe = sessionStorage.getItem('aiRecipe');
+        // Load AI recipe from localStorage
+        const storedRecipe = localStorage.getItem('aiRecipe');
         if (storedRecipe) {
           const parsed = JSON.parse(storedRecipe);
           setAiRecipe(parsed);
@@ -283,8 +284,14 @@ export default function RecipeDetail() {
 
   if (authLoading || (!recipe && !aiRecipe)) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="animate-pulse text-muted-foreground">Loading...</div>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-background space-y-4">
+        <div className="relative">
+          <div className="absolute inset-0 bg-primary/20 blur-xl rounded-full animate-pulse" />
+          <div className="relative bg-card p-4 rounded-full shadow-elevated border border-border/50">
+            <Loader2 className="h-8 w-8 text-primary animate-spin" />
+          </div>
+        </div>
+        <p className="text-muted-foreground font-medium animate-pulse">Loading your recipe...</p>
       </div>
     );
   }
@@ -327,12 +334,12 @@ export default function RecipeDetail() {
                 <img
                   src={displayImage}
                   alt={displayName || 'Recipe'}
-                  className="w-full aspect-[4/3] object-cover"
+                  className="w-full aspect-video object-cover hover:scale-105 transition-transform duration-700"
                 />
               ) : (
-                <div className="w-full aspect-[4/3] bg-gradient-to-br from-primary/20 via-accent/10 to-secondary flex items-center justify-center">
+                <div className="w-full aspect-video bg-gradient-to-br from-primary/20 via-accent/10 to-secondary flex items-center justify-center">
                   <div className="text-center p-4">
-                    <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-primary/20 mb-3">
+                    <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-primary/20 mb-3 animate-pulse">
                       <Sparkles className="w-10 h-10 text-primary" />
                     </div>
                     <p className="text-lg text-muted-foreground font-medium">AI Generated Recipe</p>
@@ -340,7 +347,7 @@ export default function RecipeDetail() {
                 </div>
               )}
               <div className="absolute inset-0 bg-gradient-to-t from-foreground/60 via-transparent to-transparent" />
-              
+
               <div className="absolute bottom-4 left-4 right-4">
                 <div className="flex items-center gap-2 mb-2">
                   <span className={cn("px-3 py-1 rounded-full text-sm font-medium", difficultyColor[displayDifficulty || ''] || 'bg-muted text-muted-foreground')}>
@@ -396,7 +403,7 @@ export default function RecipeDetail() {
             <h1 className="font-display text-3xl md:text-4xl font-bold text-foreground mb-4">
               {displayName}
             </h1>
-            
+
             <p className="text-lg text-muted-foreground mb-6">
               {displayDescription}
             </p>
@@ -423,28 +430,28 @@ export default function RecipeDetail() {
                     key={index}
                     onClick={() => toggleStep(index)}
                     className={cn(
-                      "w-full text-left p-4 rounded-xl border transition-all duration-200",
+                      "w-full text-left p-6 rounded-2xl border transition-all duration-300 hover:shadow-md hover:border-primary/50 group",
                       completedSteps.has(index)
                         ? "bg-primary/5 border-primary/20"
-                        : "bg-card border-border hover:border-primary/30"
+                        : "bg-card border-border/60"
                     )}
                   >
-                    <div className="flex gap-4">
+                    <div className="flex gap-5">
                       <div className={cn(
-                        "flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors",
+                        "flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-300 shadow-sm",
                         completedSteps.has(index)
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-muted-foreground"
+                          ? "bg-primary text-primary-foreground scale-110"
+                          : "bg-surface-secondary text-muted-foreground group-hover:bg-primary group-hover:text-primary-foreground"
                       )}>
                         {completedSteps.has(index) ? (
                           <CheckCircle2 className="h-5 w-5" />
                         ) : (
-                          <span className="text-sm font-medium">{index + 1}</span>
+                          <span className="text-sm font-bold font-mono">{index + 1}</span>
                         )}
                       </div>
                       <p className={cn(
-                        "text-foreground pt-1",
-                        completedSteps.has(index) && "line-through opacity-60"
+                        "text-foreground pt-0.5 leading-relaxed text-lg",
+                        completedSteps.has(index) && "line-through opacity-60 decoration-primary/40"
                       )}>
                         {step}
                       </p>
