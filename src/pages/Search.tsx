@@ -72,15 +72,26 @@ export default function Search() {
     setHasSearched(true);
     setAiRecipe(null);
 
-    // If no static results, generate with AI
+    // If no static results, generate with AI using external Supabase
     if (results.length === 0) {
       setIsGenerating(true);
       try {
-        const { data, error } = await supabase.functions.invoke('generate-recipe', {
-          body: { input: searchQuery.trim() },
-        });
+        const response = await fetch(
+          'https://fmcxgawnbeszoyslawik.supabase.co/functions/v1/generate-recipe',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ input: searchQuery.trim() }),
+          }
+        );
 
-        if (error) throw error;
+        if (!response.ok) {
+          throw new Error(`HTTP error: ${response.status}`);
+        }
+
+        const data = await response.json();
 
         if (data.recipe) {
           setAiRecipe(data.recipe);
