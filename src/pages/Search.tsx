@@ -55,10 +55,10 @@ export default function Search() {
     }
   };
 
-  const generateDishImage = async (dishName: string): Promise<string | null> => {
+  const fetchDishImage = async (dishName: string): Promise<string | null> => {
     try {
       const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-dish-image`,
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fetch-dish-image`,
         {
           method: 'POST',
           headers: {
@@ -75,17 +75,17 @@ export default function Search() {
       const data = await response.json();
       return data.image_url || null;
     } catch (error) {
-      console.error('Error generating image:', error);
+      console.error('Error fetching image:', error);
       return null;
     }
   };
 
-  const generateImagesForVarieties = async (varietiesList: DishVariety[]) => {
-    // Generate images for all varieties in parallel
+  const fetchImagesForVarieties = async (varietiesList: DishVariety[]) => {
+    // Fetch real images for all varieties in parallel
     const imagePromises = varietiesList.map(async (variety) => {
       setLoadingImages(prev => new Set(prev).add(variety.variety_name));
       
-      const imageUrl = await generateDishImage(variety.variety_name);
+      const imageUrl = await fetchDishImage(variety.variety_name);
       
       setLoadingImages(prev => {
         const next = new Set(prev);
@@ -98,7 +98,7 @@ export default function Search() {
 
     const results = await Promise.all(imagePromises);
 
-    // Update varieties with generated images
+    // Update varieties with fetched images
     setVarieties(prev => 
       prev.map(v => {
         const result = results.find(r => r.varietyName === v.variety_name);
@@ -153,11 +153,11 @@ export default function Search() {
         
         toast({
           title: 'Varieties Found!',
-          description: `Found ${data.varieties.length} varieties. Generating images...`,
+          description: `Found ${data.varieties.length} varieties. Fetching images...`,
         });
 
-        // Generate images for all varieties in background
-        generateImagesForVarieties(data.varieties);
+        // Fetch real images for all varieties in background
+        fetchImagesForVarieties(data.varieties);
       } else if (data.error) {
         throw new Error(data.error);
       } else {
