@@ -66,52 +66,50 @@ export default function Search() {
       return;
     }
 
-    // First search static recipes
+    // Search static recipes for reference
     const results = searchRecipes(searchQuery);
     setSearchResults(results);
     setHasSearched(true);
     setAiRecipe(null);
 
-    // If no static results, generate with AI using external Supabase
-    if (results.length === 0) {
-      setIsGenerating(true);
-      try {
-        const response = await fetch(
-          'https://fmcxgawnbeszoyslawik.supabase.co/functions/v1/generate-recepie',
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ input: searchQuery.trim() }),
-          }
-        );
-
-        if (!response.ok) {
-          throw new Error(`HTTP error: ${response.status}`);
+    // Always generate AI recipe for any dish/ingredient query
+    setIsGenerating(true);
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-recipe`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ input: searchQuery.trim() }),
         }
+      );
 
-        const data = await response.json();
-
-        if (data.recipe) {
-          setAiRecipe(data.recipe);
-          toast({
-            title: 'AI Recipe Generated!',
-            description: `Created: ${data.recipe.recipe_name}`,
-          });
-        } else if (data.error) {
-          throw new Error(data.error);
-        }
-      } catch (error: any) {
-        console.error('Error generating recipe:', error);
-        toast({
-          title: 'Could not generate recipe',
-          description: 'Try different ingredients or browse our popular recipes.',
-          variant: 'destructive',
-        });
-      } finally {
-        setIsGenerating(false);
+      if (!response.ok) {
+        throw new Error(`HTTP error: ${response.status}`);
       }
+
+      const data = await response.json();
+
+      if (data.recipe) {
+        setAiRecipe(data.recipe);
+        toast({
+          title: 'AI Recipe Generated!',
+          description: `Created: ${data.recipe.recipe_name}`,
+        });
+      } else if (data.error) {
+        throw new Error(data.error);
+      }
+    } catch (error: any) {
+      console.error('Error generating recipe:', error);
+      toast({
+        title: 'Could not generate recipe',
+        description: 'Try different ingredients or browse our popular recipes.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsGenerating(false);
     }
   };
 
