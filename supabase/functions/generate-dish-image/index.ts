@@ -23,42 +23,56 @@ serve(async (req) => {
 
     console.log('Generating image for dish:', dish_name);
 
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${Deno.env.get('LOVABLE_API_KEY')}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-flash-image-preview',
-        messages: [
-          {
-            role: 'user',
-            content: `Generate a high-quality, appetizing food photography image of ${dish_name}. The dish should be beautifully plated, well-lit with natural lighting, on an elegant plate with a clean background. Make it look professional and delicious.`
-          }
-        ],
-        modalities: ['image', 'text']
-      }),
-    });
+    const maxRetries = 3;
+    let imageUrl: string | undefined;
+    let lastError: string = '';
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('AI Gateway error:', errorText);
-      return new Response(
-        JSON.stringify({ error: 'Failed to generate image. Please try again.' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      console.log(`Attempt ${attempt} of ${maxRetries}`);
+      
+      const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${Deno.env.get('LOVABLE_API_KEY')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'google/gemini-2.5-flash-image-preview',
+          messages: [
+            {
+              role: 'user',
+              content: `Create a photorealistic image of ${dish_name}. Show the dish beautifully plated on a ceramic plate with natural lighting. Food photography style.`
+            }
+          ],
+          modalities: ['image', 'text']
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`Attempt ${attempt} - AI Gateway error:`, errorText);
+        lastError = 'Failed to generate image';
+        continue;
+      }
+
+      const data = await response.json();
+      console.log(`Attempt ${attempt} - AI response received`);
+
+      imageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+
+      if (imageUrl) {
+        console.log(`Image generated successfully on attempt ${attempt}`);
+        break;
+      } else {
+        console.log(`Attempt ${attempt} - No image in response, retrying...`);
+        lastError = 'No image generated';
+      }
     }
 
-    const data = await response.json();
-    console.log('AI response received');
-
-    const imageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-
     if (!imageUrl) {
-      console.error('No image in response:', JSON.stringify(data));
+      console.error('All attempts failed to generate image');
       return new Response(
-        JSON.stringify({ error: 'No image generated. Please try again.' }),
+        JSON.stringify({ error: lastError || 'Failed to generate image after multiple attempts' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
