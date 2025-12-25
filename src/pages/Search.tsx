@@ -3,13 +3,16 @@ import { useNavigate } from 'react-router-dom';
 import { Header } from '@/components/Header';
 import { RecipeCard } from '@/components/RecipeCard';
 import { AIRecipeCard, AIGeneratedRecipe } from '@/components/AIRecipeCard';
+import { VarietyCard, DishVariety } from '@/components/VarietyCard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useExternalAuth } from '@/hooks/useExternalAuth';
 import { useToast } from '@/hooks/use-toast';
 import { externalSupabase } from '@/integrations/external-supabase/client';
 import { recipes, searchRecipes, Recipe } from '@/data/recipes';
-import { Search as SearchIcon, X, Sparkles, ChefHat, Loader2 } from 'lucide-react';
+import { Search as SearchIcon, X, Sparkles, ChefHat, Loader2, ArrowLeft } from 'lucide-react';
+
+type SearchState = 'initial' | 'varieties' | 'recipe';
 
 export default function Search() {
   const { user, loading: authLoading } = useExternalAuth();
@@ -20,7 +23,12 @@ export default function Search() {
   const [searchResults, setSearchResults] = useState<Recipe[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
   const [favouriteIds, setFavouriteIds] = useState<Set<string>>(new Set());
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  
+  // New state for varieties flow
+  const [searchState, setSearchState] = useState<SearchState>('initial');
+  const [dishName, setDishName] = useState('');
+  const [varieties, setVarieties] = useState<DishVariety[]>([]);
   const [aiRecipe, setAiRecipe] = useState<AIGeneratedRecipe | null>(null);
 
   useEffect(() => {
@@ -49,8 +57,8 @@ export default function Search() {
   const handleSearch = async () => {
     if (!searchQuery.trim()) {
       toast({
-        title: 'Enter ingredients',
-        description: 'Please enter at least one ingredient or recipe name.',
+        title: 'Enter a dish name',
+        description: 'Please enter a dish name to find varieties.',
         variant: 'destructive',
       });
       return;
@@ -60,10 +68,59 @@ export default function Search() {
     const results = searchRecipes(searchQuery);
     setSearchResults(results);
     setHasSearched(true);
+    setVarieties([]);
+    setAiRecipe(null);
+    setDishName(searchQuery.trim());
+
+    // Fetch dish varieties
+    setIsLoading(true);
+    setSearchState('varieties');
+    
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/get-dish-varieties`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ dish_name: searchQuery.trim() }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (data.varieties && data.varieties.length > 0) {
+        setVarieties(data.varieties);
+        toast({
+          title: 'Varieties Found!',
+          description: `Found ${data.varieties.length} varieties of ${data.dish_name}`,
+        });
+      } else if (data.error) {
+        throw new Error(data.error);
+      }
+    } catch (error: any) {
+      console.error('Error fetching varieties:', error);
+      toast({
+        title: 'Could not find varieties',
+        description: 'Try a different dish name.',
+        variant: 'destructive',
+      });
+      setSearchState('initial');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleVarietyClick = async (variety: DishVariety) => {
+    setIsLoading(true);
+    setSearchState('recipe');
     setAiRecipe(null);
 
-    // Always generate AI recipe for any dish/ingredient query
-    setIsGenerating(true);
     try {
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-recipe`,
@@ -72,7 +129,7 @@ export default function Search() {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ input: searchQuery.trim() }),
+          body: JSON.stringify({ input: variety.variety_name }),
         }
       );
 
@@ -85,7 +142,7 @@ export default function Search() {
       if (data.recipe) {
         setAiRecipe(data.recipe);
         toast({
-          title: 'AI Recipe Generated!',
+          title: 'Recipe Generated!',
           description: `Created: ${data.recipe.recipe_name}`,
         });
       } else if (data.error) {
@@ -95,11 +152,30 @@ export default function Search() {
       console.error('Error generating recipe:', error);
       toast({
         title: 'Could not generate recipe',
-        description: 'Try different ingredients or browse our popular recipes.',
+        description: 'Please try again.',
         variant: 'destructive',
       });
+      setSearchState('varieties');
     } finally {
-      setIsGenerating(false);
+      setIsLoading(false);
+    }
+  };
+
+  const handleAIRecipeClick = () => {
+    if (aiRecipe) {
+      sessionStorage.setItem('aiRecipe', JSON.stringify(aiRecipe));
+      navigate('/recipe/ai-generated');
+    }
+  };
+
+  const handleBack = () => {
+    if (searchState === 'recipe') {
+      setSearchState('varieties');
+      setAiRecipe(null);
+    } else if (searchState === 'varieties') {
+      setSearchState('initial');
+      setVarieties([]);
+      setDishName('');
     }
   };
 
@@ -148,14 +224,6 @@ export default function Search() {
     }
   };
 
-  const handleAIRecipeClick = () => {
-    if (aiRecipe) {
-      // Store AI recipe in sessionStorage and navigate to detail page
-      sessionStorage.setItem('aiRecipe', JSON.stringify(aiRecipe));
-      navigate('/recipe/ai-generated');
-    }
-  };
-
   const popularRecipes = recipes.slice(0, 6);
   const displayRecipes = hasSearched ? searchResults : popularRecipes;
 
@@ -179,7 +247,7 @@ export default function Search() {
               What's in Your Kitchen?
             </h1>
             <p className="text-muted-foreground">
-              Enter ingredients or a dish name — we'll find or generate a recipe for you!
+              Enter a dish name — we'll show you popular varieties to choose from!
             </p>
           </div>
 
@@ -189,20 +257,22 @@ export default function Search() {
                 <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
                 <Input
                   type="text"
-                  placeholder="e.g., chicken, rice, garlic or 'butter chicken'"
+                  placeholder="e.g., biryani, pizza, pasta, curry..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyPress={handleKeyPress}
-                  disabled={isGenerating}
+                  disabled={isLoading}
                   className="pl-12 pr-10 h-14 text-base rounded-xl"
                 />
-                {searchQuery && !isGenerating && (
+                {searchQuery && !isLoading && (
                   <button
                     onClick={() => {
                       setSearchQuery('');
                       setHasSearched(false);
                       setSearchResults([]);
+                      setVarieties([]);
                       setAiRecipe(null);
+                      setSearchState('initial');
                     }}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                   >
@@ -214,107 +284,159 @@ export default function Search() {
                 onClick={handleSearch} 
                 size="lg" 
                 className="h-14 px-8 rounded-xl gap-2"
-                disabled={isGenerating}
+                disabled={isLoading}
               >
-                {isGenerating ? (
+                {isLoading ? (
                   <>
                     <Loader2 className="h-5 w-5 animate-spin" />
-                    Generating...
+                    Loading...
                   </>
                 ) : (
                   <>
                     <Sparkles className="h-5 w-5" />
-                    Find Recipes
+                    Find Varieties
                   </>
                 )}
               </Button>
             </div>
 
-            {/* Quick ingredient suggestions */}
+            {/* Quick dish suggestions */}
             <div className="flex flex-wrap gap-2 mt-4">
-              {['chicken', 'pasta', 'eggs', 'rice', 'tomatoes', 'garlic'].map((ingredient) => (
+              {['biryani', 'pizza', 'pasta', 'curry', 'burger', 'tacos'].map((dish) => (
                 <button
-                  key={ingredient}
-                  onClick={() => {
-                    setSearchQuery(prev => 
-                      prev ? `${prev}, ${ingredient}` : ingredient
-                    );
-                  }}
-                  disabled={isGenerating}
-                  className="px-3 py-1.5 rounded-full bg-secondary text-secondary-foreground text-sm hover:bg-secondary/80 transition-colors disabled:opacity-50"
+                  key={dish}
+                  onClick={() => setSearchQuery(dish)}
+                  disabled={isLoading}
+                  className="px-3 py-1.5 rounded-full bg-secondary text-secondary-foreground text-sm hover:bg-secondary/80 transition-colors disabled:opacity-50 capitalize"
                 >
-                  + {ingredient}
+                  {dish}
                 </button>
               ))}
             </div>
           </div>
         </div>
 
+        {/* Back button when in varieties or recipe state */}
+        {searchState !== 'initial' && (
+          <div className="max-w-3xl mx-auto mb-6">
+            <Button
+              variant="ghost"
+              onClick={handleBack}
+              className="gap-2"
+              disabled={isLoading}
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back to {searchState === 'recipe' ? 'Varieties' : 'Search'}
+            </Button>
+          </div>
+        )}
+
+        {/* Varieties Section */}
+        {searchState === 'varieties' && varieties.length > 0 && (
+          <div className="max-w-3xl mx-auto mb-12">
+            <div className="flex items-center gap-2 mb-6">
+              <Sparkles className="h-5 w-5 text-accent" />
+              <h2 className="font-display text-xl font-semibold text-foreground">
+                Varieties of {dishName}
+              </h2>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-4">
+              {varieties.map((variety, index) => (
+                <div
+                  key={variety.variety_name}
+                  className="animate-in fade-in slide-in-from-bottom-4"
+                  style={{ animationDelay: `${0.05 * index}s` }}
+                >
+                  <VarietyCard
+                    variety={variety}
+                    onClick={() => handleVarietyClick(variety)}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* AI Generated Recipe Card */}
-        {aiRecipe && (
+        {searchState === 'recipe' && aiRecipe && (
           <div className="max-w-md mx-auto mb-12">
             <div className="flex items-center gap-2 mb-4">
               <Sparkles className="h-5 w-5 text-accent" />
               <h2 className="font-display text-xl font-semibold text-foreground">
-                AI Generated Recipe
+                Generated Recipe
               </h2>
             </div>
             <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
               <AIRecipeCard recipe={aiRecipe} onClick={handleAIRecipeClick} />
             </div>
+            <p className="text-sm text-muted-foreground text-center mt-4">
+              Click the card to view full recipe details
+            </p>
           </div>
         )}
 
-        {/* Results Section */}
-        <div>
-          <div className="flex items-center gap-2 mb-6">
-            <ChefHat className="h-5 w-5 text-primary" />
-            <h2 className="font-display text-xl font-semibold text-foreground">
-              {hasSearched 
-                ? `${searchResults.length} Recipe${searchResults.length !== 1 ? 's' : ''} Found`
-                : 'Popular Recipes'}
-            </h2>
+        {/* Loading state */}
+        {isLoading && (
+          <div className="max-w-3xl mx-auto mb-12 text-center py-12">
+            <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
+            <p className="text-muted-foreground">
+              {searchState === 'varieties' ? 'Finding varieties...' : 'Generating recipe...'}
+            </p>
           </div>
+        )}
 
-          {displayRecipes.length > 0 ? (
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {displayRecipes.map((recipe, index) => (
-                <div
-                  key={recipe.id}
-                  className="animate-fade-up"
-                  style={{ animationDelay: `${0.05 * index}s` }}
-                >
-                  <RecipeCard
-                    recipe={recipe}
-                    isFavourite={favouriteIds.has(recipe.id)}
-                    onToggleFavourite={toggleFavourite}
-                  />
-                </div>
-              ))}
+        {/* Results Section - Show only in initial state */}
+        {searchState === 'initial' && (
+          <div>
+            <div className="flex items-center gap-2 mb-6">
+              <ChefHat className="h-5 w-5 text-primary" />
+              <h2 className="font-display text-xl font-semibold text-foreground">
+                {hasSearched 
+                  ? `${searchResults.length} Recipe${searchResults.length !== 1 ? 's' : ''} Found`
+                  : 'Popular Recipes'}
+              </h2>
             </div>
-          ) : hasSearched && !aiRecipe && !isGenerating ? (
-            <div className="text-center py-16">
-              <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-muted mb-4">
-                <SearchIcon className="h-8 w-8 text-muted-foreground" />
+
+            {displayRecipes.length > 0 ? (
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {displayRecipes.map((recipe, index) => (
+                  <div
+                    key={recipe.id}
+                    className="animate-fade-up"
+                    style={{ animationDelay: `${0.05 * index}s` }}
+                  >
+                    <RecipeCard
+                      recipe={recipe}
+                      isFavourite={favouriteIds.has(recipe.id)}
+                      onToggleFavourite={toggleFavourite}
+                    />
+                  </div>
+                ))}
               </div>
-              <h3 className="font-display text-xl font-semibold text-foreground mb-2">
-                No recipes found
-              </h3>
-              <p className="text-muted-foreground mb-6">
-                Try different ingredients or check out our popular recipes
-              </p>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setSearchQuery('');
-                  setHasSearched(false);
-                }}
-              >
-                Browse All Recipes
-              </Button>
-            </div>
-          ) : null}
-        </div>
+            ) : hasSearched ? (
+              <div className="text-center py-16">
+                <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-muted mb-4">
+                  <SearchIcon className="h-8 w-8 text-muted-foreground" />
+                </div>
+                <h3 className="font-display text-xl font-semibold text-foreground mb-2">
+                  No recipes found
+                </h3>
+                <p className="text-muted-foreground mb-6">
+                  Try a different dish name or check out our popular recipes
+                </p>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setHasSearched(false);
+                  }}
+                >
+                  Browse All Recipes
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        )}
       </main>
     </div>
   );
