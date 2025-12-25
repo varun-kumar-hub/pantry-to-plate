@@ -44,6 +44,11 @@ interface AIGeneratedRecipe {
 const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 const MEALS = ['breakfast', 'lunch', 'dinner'];
 
+// Generate a unique ID for AI recipes based on name
+const generateAIRecipeId = (name: string) => {
+  return `ai-${name.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${Date.now()}`;
+};
+
 export default function RecipeDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -52,6 +57,7 @@ export default function RecipeDetail() {
 
   const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [aiRecipe, setAiRecipe] = useState<AIGeneratedRecipe | null>(null);
+  const [aiRecipeId, setAiRecipeId] = useState<string>('');
   const [isFavourite, setIsFavourite] = useState(false);
   const [showPlannerModal, setShowPlannerModal] = useState(false);
   const [selectedDay, setSelectedDay] = useState('');
@@ -72,7 +78,9 @@ export default function RecipeDetail() {
         // Load AI recipe from sessionStorage
         const storedRecipe = sessionStorage.getItem('aiRecipe');
         if (storedRecipe) {
-          setAiRecipe(JSON.parse(storedRecipe));
+          const parsed = JSON.parse(storedRecipe);
+          setAiRecipe(parsed);
+          setAiRecipeId(generateAIRecipeId(parsed.recipe_name));
         } else {
           navigate('/search');
         }
@@ -89,56 +97,119 @@ export default function RecipeDetail() {
 
   useEffect(() => {
     if (user && recipe) {
-      checkFavourite();
+      checkFavourite(recipe.id);
     }
   }, [user, recipe]);
 
-  const checkFavourite = async () => {
-    if (!user || !recipe) return;
+  useEffect(() => {
+    if (user && aiRecipe && aiRecipeId) {
+      checkAIFavourite();
+    }
+  }, [user, aiRecipe, aiRecipeId]);
+
+  const checkFavourite = async (recipeId: string) => {
+    if (!user) return;
 
     const { data } = await externalSupabase
       .from('favourite_recipes')
       .select('id')
       .eq('user_id', user.id)
-      .eq('recipe_id', recipe.id)
+      .eq('recipe_id', recipeId)
       .maybeSingle();
 
     setIsFavourite(!!data);
   };
 
-  const toggleFavourite = async () => {
-    if (!user || !recipe) return;
+  const checkAIFavourite = async () => {
+    if (!user || !aiRecipe) return;
 
-    if (isFavourite) {
-      await externalSupabase
-        .from('favourite_recipes')
-        .delete()
-        .eq('user_id', user.id)
-        .eq('recipe_id', recipe.id);
+    // Check if any AI recipe with same name exists in favourites
+    const { data } = await externalSupabase
+      .from('favourite_recipes')
+      .select('id, recipe_id')
+      .eq('user_id', user.id)
+      .eq('recipe_name', aiRecipe.recipe_name)
+      .maybeSingle();
 
-      setIsFavourite(false);
-      toast({
-        title: 'Removed from favourites',
-        description: `${recipe.name} has been removed from your favourites.`,
-      });
-    } else {
-      await externalSupabase.from('favourite_recipes').insert([{
-        user_id: user.id,
-        recipe_id: recipe.id,
-        recipe_name: recipe.name,
-        recipe_data: JSON.parse(JSON.stringify(recipe)),
-      }]);
-
+    if (data) {
+      setAiRecipeId(data.recipe_id);
       setIsFavourite(true);
-      toast({
-        title: 'Added to favourites',
-        description: `${recipe.name} has been added to your favourites.`,
-      });
+    } else {
+      setIsFavourite(false);
+    }
+  };
+
+  const toggleFavourite = async () => {
+    if (!user) return;
+
+    if (isAIRecipe && aiRecipe) {
+      if (isFavourite) {
+        await externalSupabase
+          .from('favourite_recipes')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('recipe_name', aiRecipe.recipe_name);
+
+        setIsFavourite(false);
+        toast({
+          title: 'Removed from favourites',
+          description: `${aiRecipe.recipe_name} has been removed from your favourites.`,
+        });
+      } else {
+        const recipeData = {
+          ...aiRecipe,
+          id: aiRecipeId,
+          name: aiRecipe.recipe_name,
+          cookingTime: aiRecipe.cooking_time_minutes,
+          category: 'AI Generated',
+          description: `AI-generated recipe for ${aiRecipe.recipe_name}`,
+        };
+
+        await externalSupabase.from('favourite_recipes').insert([{
+          user_id: user.id,
+          recipe_id: aiRecipeId,
+          recipe_name: aiRecipe.recipe_name,
+          recipe_data: recipeData,
+        }]);
+
+        setIsFavourite(true);
+        toast({
+          title: 'Added to favourites',
+          description: `${aiRecipe.recipe_name} has been added to your favourites.`,
+        });
+      }
+    } else if (recipe) {
+      if (isFavourite) {
+        await externalSupabase
+          .from('favourite_recipes')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('recipe_id', recipe.id);
+
+        setIsFavourite(false);
+        toast({
+          title: 'Removed from favourites',
+          description: `${recipe.name} has been removed from your favourites.`,
+        });
+      } else {
+        await externalSupabase.from('favourite_recipes').insert([{
+          user_id: user.id,
+          recipe_id: recipe.id,
+          recipe_name: recipe.name,
+          recipe_data: JSON.parse(JSON.stringify(recipe)),
+        }]);
+
+        setIsFavourite(true);
+        toast({
+          title: 'Added to favourites',
+          description: `${recipe.name} has been added to your favourites.`,
+        });
+      }
     }
   };
 
   const addToMealPlan = async () => {
-    if (!user || !recipe || !selectedDay || !selectedMeal) {
+    if (!user || !selectedDay || !selectedMeal) {
       toast({
         title: 'Select day and meal',
         description: 'Please select both a day and meal type.',
@@ -147,13 +218,36 @@ export default function RecipeDetail() {
       return;
     }
 
+    let recipeId: string;
+    let recipeName: string;
+    let recipeData: any;
+
+    if (isAIRecipe && aiRecipe) {
+      recipeId = aiRecipeId;
+      recipeName = aiRecipe.recipe_name;
+      recipeData = {
+        ...aiRecipe,
+        id: aiRecipeId,
+        name: aiRecipe.recipe_name,
+        cookingTime: aiRecipe.cooking_time_minutes,
+        category: 'AI Generated',
+        description: `AI-generated recipe for ${aiRecipe.recipe_name}`,
+      };
+    } else if (recipe) {
+      recipeId = recipe.id;
+      recipeName = recipe.name;
+      recipeData = JSON.parse(JSON.stringify(recipe));
+    } else {
+      return;
+    }
+
     const { error } = await externalSupabase.from('meal_plans').upsert([{
       user_id: user.id,
       day_of_week: selectedDay,
       meal_type: selectedMeal,
-      recipe_id: recipe.id,
-      recipe_name: recipe.name,
-      recipe_data: JSON.parse(JSON.stringify(recipe)),
+      recipe_id: recipeId,
+      recipe_name: recipeName,
+      recipe_data: recipeData,
     }], {
       onConflict: 'user_id,day_of_week,meal_type',
     });
@@ -167,7 +261,7 @@ export default function RecipeDetail() {
     } else {
       toast({
         title: 'Added to meal plan!',
-        description: `${recipe.name} added to ${selectedDay}'s ${selectedMeal}.`,
+        description: `${recipeName} added to ${selectedDay}'s ${selectedMeal}.`,
       });
       setShowPlannerModal(false);
       setSelectedDay('');
@@ -260,27 +354,25 @@ export default function RecipeDetail() {
               </div>
             </div>
 
-            {/* Actions - hide for AI recipes */}
-            {!isAIRecipe && (
-              <div className="flex gap-3 mb-8">
-                <Button
-                  variant={isFavourite ? 'default' : 'outline'}
-                  className="flex-1 gap-2"
-                  onClick={toggleFavourite}
-                >
-                  <Heart className={cn("h-5 w-5", isFavourite && "fill-current")} />
-                  {isFavourite ? 'Saved' : 'Save to Favourites'}
-                </Button>
-                <Button
-                  variant="default"
-                  className="flex-1 gap-2"
-                  onClick={() => setShowPlannerModal(true)}
-                >
-                  <Calendar className="h-5 w-5" />
-                  Add to Meal Plan
-                </Button>
-              </div>
-            )}
+            {/* Actions - now available for all recipes */}
+            <div className="flex gap-3 mb-8">
+              <Button
+                variant={isFavourite ? 'default' : 'outline'}
+                className="flex-1 gap-2"
+                onClick={toggleFavourite}
+              >
+                <Heart className={cn("h-5 w-5", isFavourite && "fill-current")} />
+                {isFavourite ? 'Saved' : 'Save to Favourites'}
+              </Button>
+              <Button
+                variant="default"
+                className="flex-1 gap-2"
+                onClick={() => setShowPlannerModal(true)}
+              >
+                <Calendar className="h-5 w-5" />
+                Add to Meal Plan
+              </Button>
+            </div>
 
             {/* Ingredients */}
             <div className="bg-card rounded-2xl p-6 shadow-soft">
