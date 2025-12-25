@@ -13,8 +13,11 @@ serve(async (req) => {
   try {
     const PEXELS_API_KEY = Deno.env.get('PEXELS_API_KEY');
     if (!PEXELS_API_KEY) {
+      console.error('PEXELS_API_KEY is not set');
       throw new Error('PEXELS_API_KEY is not set');
     }
+    
+    console.log('PEXELS_API_KEY length:', PEXELS_API_KEY.length);
 
     const { dish_name } = await req.json();
     
@@ -38,9 +41,12 @@ serve(async (req) => {
       }
     );
 
+    console.log('Pexels API response status:', response.status);
+
     if (!response.ok) {
-      console.error('Pexels API error:', response.status, await response.text());
-      throw new Error(`Pexels API returned ${response.status}`);
+      const errorText = await response.text();
+      console.error('Pexels API error:', response.status, errorText);
+      throw new Error(`Pexels API returned ${response.status}: ${errorText}`);
     }
 
     const data = await response.json();
