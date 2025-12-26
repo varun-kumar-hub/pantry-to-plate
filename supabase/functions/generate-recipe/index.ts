@@ -1,123 +1,308 @@
-import "https://deno.land/x/xhr@0.1.0/mod.ts";
+/// <reference lib="deno.ns" />
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+// Timeout for API calls (30 seconds)
+const API_TIMEOUT = 30000;
 
-  try {
-    const { input } = await req.json();
+// Helper function to fetch with timeout
+async function fetchWithTimeout(url: string, options: RequestInit, timeout: number): Promise<Response> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-    if (!input || typeof input !== 'string' || input.trim().length === 0) {
-      return new Response(
-        JSON.stringify({ error: 'Please provide ingredients or a dish name' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    try {
+        const response = await fetch(url, {
+            ...options,
+            signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        return response;
+    } catch (error) {
+        clearTimeout(timeoutId);
+        throw error;
+    }
+}
+
+// Validate and sanitize input
+function validateInput(body: any): { ingredients?: string[], dish_name?: string, error?: string } {
+    const ingredients = body.ingredients;
+    const dish_name = body.dish_name || body.input;
+
+    if (ingredients && Array.isArray(ingredients)) {
+        if (ingredients.length === 0) {
+            return { error: "Ingredients array cannot be empty" };
+        }
+        if (ingredients.length > 20) {
+            return { error: "Too many ingredients (max 20)" };
+        }
+        // Sanitize ingredients
+        const sanitized = ingredients
+            .filter(item => typeof item === 'string' && item.trim().length > 0)
+            .map(item => item.trim().substring(0, 100)); // Limit length
+
+        if (sanitized.length === 0) {
+            return { error: "No valid ingredients provided" };
+        }
+        return { ingredients: sanitized };
     }
 
-    const systemPrompt = `You are a professional cooking assistant.
+    if (dish_name && typeof dish_name === 'string') {
+        const sanitized = dish_name.trim().substring(0, 200);
+        if (sanitized.length === 0) {
+            return { error: "Dish name cannot be empty" };
+        }
+        return { dish_name: sanitized };
+    }
 
-Generate ONE complete cooking recipe based on the user's input.
+    return { error: "Missing ingredients or dish_name" };
+}
 
-The input may be:
-- A list of available ingredients, OR
-- A single dish name.
+// Build prompt based on input
+function buildPrompt(ingredients?: string[], dish_name?: string): string {
+    let prompt = "";
 
-RULES (STRICT):
-- Respond ONLY in valid JSON.
-- Do NOT include explanations, markdown, or extra text.
-- Do NOT include emojis.
-- Use simple, beginner-friendly language.
-- Quantities must be realistic and commonly used.
-- Cooking steps must be clear and numbered.
-- Assume basic kitchen equipment.
-- Avoid rare or expensive ingredients unless required by the dish.
+    if (ingredients && ingredients.length > 0) {
+        prompt = `You are a professional cooking assistant.
 
-JSON FORMAT (EXACT):
+Available Ingredients: ${ingredients.join(", ")}
+
+Create EXACTLY ONE (1) distinct recipe using these ingredients (plus common pantry staples like salt, pepper, oil, etc.).
+
+Requirements:
+Create a single, perfect recipe that best utilizes the provided ingredients. It should be practical, delicious, and easy to follow.
+
+The recipe must be complete.`;
+    } else if (dish_name) {
+        prompt = `You are a professional cooking assistant.
+
+Dish: "${dish_name}"
+
+Create EXACTLY FIVE (5) distinct variations of this dish.
+
+Requirements:
+1. Classic/Authentic - Traditional preparation method
+2. Modern/Gourmet - Upscale restaurant-quality version
+3. Quick & Easy - Simplified version under 30 minutes
+4. Healthy/Light - Lighter, more nutritious alternative
+5. Fusion/Unique - Creative fusion with another cuisine
+
+Each variation must be complete and practical.`;
+    }
+
+    prompt += `
+
+CRITICAL: Return ONLY valid JSON with NO markdown, NO code blocks, NO preamble text.
+
+Required JSON structure:
 {
-  "recipe_name": "",
-  "cooking_time_minutes": 0,
-  "difficulty": "Easy | Medium | Hard",
-  "servings": 4,
-  "ingredients": [
+  "recipes": [
     {
-      "name": "",
-      "quantity": ""
+      "recipe_name": "Descriptive name",
+      "description": "Brief appetizing description (1-2 sentences)",
+      "cooking_time_minutes": 30,
+      "difficulty": "Easy",
+      "servings": 4,
+      "calories": "250 kcal per serving",
+      "cuisine": "Italian",
+      "ingredients": [
+        { "name": "Ingredient Name", "quantity": "2 cups" },
+        { "name": "Spice Name", "quantity": "1 tsp" }
+      ],
+      "macronutrients": {
+        "protein": "30g",
+        "carbs": "45g",
+        "fat": "12g"
+      },
+      "instructions": [
+        "Step 1 with clear action",
+        "Step 2 with clear action"
+      ]
     }
-  ],
-  "instructions": [
-    ""
   ]
 }
 
-If the input ingredients are insufficient, generate a simple recipe using the closest possible ingredients.
-If the input is a dish name, generate a standard version of that dish.`;
+Generate exactly ${ingredients && ingredients.length > 0 ? "1 recipe" : "5 recipes"}. Start response with { and end with }`;
 
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${Deno.env.get('LOVABLE_API_KEY')}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: input }
-        ],
-        temperature: 0.7,
-      }),
-    });
+    return prompt;
+}
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('AI Gateway error:', errorText);
-      return new Response(
-        JSON.stringify({ error: 'Failed to generate recipe. Please try again.' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+// Extract and clean JSON from response
+function extractJSON(text: string): any {
+    // Remove markdown code blocks
+    let cleaned = text.replace(/```json\n?|\n?```|```\n?/g, "").trim();
+
+    // Find first { and last }
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
+
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        cleaned = cleaned.substring(firstBrace, lastBrace + 1);
     }
 
-    const data = await response.json();
-    const content = data.choices[0]?.message?.content;
+    return JSON.parse(cleaned);
+}
 
-    if (!content) {
-      return new Response(
-        JSON.stringify({ error: 'No recipe generated. Please try again.' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+serve(async (req: Request) => {
+    // Handle CORS preflight
+    if (req.method === "OPTIONS") {
+        return new Response(null, { headers: corsHeaders });
     }
 
-    // Parse the JSON response from the AI
-    let recipe;
     try {
-      // Clean up the response in case it has markdown code blocks
-      const cleanedContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      recipe = JSON.parse(cleanedContent);
-    } catch (parseError) {
-      console.error('Failed to parse recipe JSON:', content);
-      return new Response(
-        JSON.stringify({ error: 'Failed to parse recipe. Please try again.' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+        // Parse and validate request body
+        let body;
+        try {
+            body = await req.json();
+        } catch (e) {
+            return new Response(
+                JSON.stringify({ error: "Invalid JSON in request body" }),
+                { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+        }
+
+        const validation = validateInput(body);
+        if (validation.error) {
+            return new Response(
+                JSON.stringify({ error: validation.error }),
+                { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+        }
+
+        // Build prompt
+        const prompt = buildPrompt(validation.ingredients, validation.dish_name);
+
+        // Check for API key
+        const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+        if (!GEMINI_API_KEY) {
+            console.error("GEMINI_API_KEY environment variable not set");
+            return new Response(
+                JSON.stringify({ error: "Server configuration error" }),
+                { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+        }
+
+        // Use Gemini 2.5 Flash with fallback to 1.5 Flash
+        const models = [
+            "gemini-2.5-flash",
+            "gemini-1.5-flash"
+        ];
+
+        let successResponse: Response | null = null;
+        let lastError = "";
+
+        for (const model of models) {
+            try {
+                console.log(`Attempting generation with model: ${model}`);
+
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+
+                const response = await fetchWithTimeout(
+                    apiUrl,
+                    {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            contents: [{
+                                parts: [{ text: prompt }]
+                            }],
+                            generationConfig: {
+                                temperature: 0.7,
+                                maxOutputTokens: 8192,
+                                response_mime_type: "application/json" // Re-adding JSON mode for stability
+                            }
+                        }),
+                    },
+                    API_TIMEOUT
+                );
+
+                if (response.ok) {
+                    successResponse = response;
+                    console.log(`Success with model: ${model}`);
+                    break;
+                } else {
+                    const errorText = await response.text();
+                    console.warn(`Model ${model} failed with status ${response.status}:`, errorText);
+                    lastError = `${model}: HTTP ${response.status} - ${errorText.substring(0, 100)}`;
+                }
+            } catch (e: any) {
+                const errorMsg = e.name === 'AbortError' ? 'Request timeout' : e.message;
+                console.warn(`Model ${model} error:`, errorMsg);
+                lastError = `${model}: ${errorMsg}`;
+            }
+        }
+
+        // Check if any model succeeded
+        if (!successResponse) {
+            console.error("All models failed. Last error:", lastError);
+            return new Response(
+                JSON.stringify({
+                    error: "Failed to generate recipes. Please try again.",
+                    details: lastError
+                }),
+                { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+        }
+
+        // Parse Gemini response
+        const data = await successResponse.json();
+        const recipeText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (!recipeText) {
+            console.error("No text in Gemini response:", JSON.stringify(data));
+            return new Response(
+                JSON.stringify({ error: "AI returned no content" }),
+                { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+        }
+
+        // Extract and parse JSON
+        try {
+            const recipeData = extractJSON(recipeText);
+
+            // Validate response structure
+            if (!recipeData.recipes || !Array.isArray(recipeData.recipes)) {
+                throw new Error("Invalid recipe structure");
+            }
+
+            if (recipeData.recipes.length === 0) {
+                throw new Error("No recipes generated");
+            }
+
+            console.log(`Successfully generated ${recipeData.recipes.length} recipes`);
+
+            return new Response(
+                JSON.stringify({ recipe: recipeData }),
+                {
+                    status: 200,
+                    headers: { ...corsHeaders, "Content-Type": "application/json" }
+                }
+            );
+        } catch (parseError: any) {
+            console.error("JSON parse error:", parseError.message);
+            console.error("Raw text:", recipeText.substring(0, 500));
+
+            return new Response(
+                JSON.stringify({
+                    error: "Failed to parse recipe data",
+                    details: parseError.message
+                }),
+                { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+        }
+
+    } catch (error: any) {
+        console.error("Unexpected error:", error);
+        return new Response(
+            JSON.stringify({
+                error: "Internal server error",
+                details: error.message
+            }),
+            { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
     }
-
-    return new Response(
-      JSON.stringify({ recipe }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-
-  } catch (error) {
-    console.error('Error in generate-recipe function:', error);
-    return new Response(
-      JSON.stringify({ error: 'An unexpected error occurred' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-  }
 });

@@ -75,7 +75,11 @@ export function RecipeCard({
         </div>
       </div>
 
-      <Link to={`/recipe/${recipe.id}`} className="absolute inset-0">
+      <Link
+        to={`/recipe/${recipe.id}`}
+        state={{ recipeData: recipe }}
+        className="absolute inset-0"
+      >
         <span className="sr-only">View {recipe.name}</span>
       </Link>
 

@@ -4,11 +4,15 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev:ai": "vite",
+    "dev": "vite",
+    "dev:ai": "npx supabase functions serve --env-file .env --no-verify-jwt",
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "supabase:login": "npx supabase login",
+    "supabase:deploy": "npx supabase functions deploy generate-recipe fetch-dish-image --project-ref fmcxgawnbeszoyslawik",
+    "supabase:secrets": "npx supabase secrets set --env-file .env --project-ref fmcxgawnbeszoyslawik"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

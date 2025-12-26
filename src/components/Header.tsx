@@ -32,13 +32,13 @@ export function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-border/50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header className="sticky top-0 z-50 w-full border-b border-primary/20 dark:border-white/10 bg-primary text-primary-foreground dark:bg-card dark:text-card-foreground shadow-lg">
       <div className="container flex h-16 items-center justify-between">
         <Link to="/" className="flex items-center gap-2 group">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-transform group-hover:scale-105">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/20 text-white backdrop-blur-sm transition-transform group-hover:scale-105">
             <ChefHat className="h-5 w-5" />
           </div>
-          <span className="font-display text-xl font-semibold text-foreground">
+          <span className="font-display text-xl font-semibold">
             RecipePlanner
           </span>
         </Link>
@@ -47,24 +47,24 @@ export function Header() {
           {user && (
             <>
               <Link to="/search">
-                <Button variant="ghost" size="sm">
+                <Button variant="ghost" size="sm" className="text-primary-foreground/90 hover:bg-white/10 hover:text-white dark:text-foreground dark:hover:bg-muted">
                   Find Recipes
                 </Button>
               </Link>
               <Link to="/favourites">
-                <Button variant="ghost" size="sm" className="gap-2">
+                <Button variant="ghost" size="sm" className="gap-2 text-primary-foreground/90 hover:bg-white/10 hover:text-white dark:text-foreground dark:hover:bg-muted">
                   <Heart className="h-4 w-4" />
                   Favourites
                 </Button>
               </Link>
               <Link to="/planner">
-                <Button variant="ghost" size="sm" className="gap-2">
+                <Button variant="ghost" size="sm" className="gap-2 text-primary-foreground/90 hover:bg-white/10 hover:text-white dark:text-foreground dark:hover:bg-muted">
                   <Calendar className="h-4 w-4" />
                   Meal Plan
                 </Button>
               </Link>
               <Link to="/shopping-list">
-                <Button variant="ghost" size="sm" className="gap-2">
+                <Button variant="ghost" size="sm" className="gap-2 text-primary-foreground/90 hover:bg-white/10 hover:text-white dark:text-foreground dark:hover:bg-muted">
                   <ShoppingCart className="h-4 w-4" />
                   Shopping List
                 </Button>
@@ -80,9 +80,9 @@ export function Header() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="rounded-full h-10 w-10 border border-border bg-background hover:bg-accent/10 transition-all duration-300 shadow-sm hover:shadow-md"
+                  className="rounded-full h-10 w-10 border border-white/20 dark:border-white/10 bg-white/10 dark:bg-muted/50 hover:bg-white/20 dark:hover:bg-muted text-primary-foreground dark:text-foreground"
                 >
-                  <div className="flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary-foreground text-primary-foreground font-bold text-lg">
+                  <div className="flex h-full w-full items-center justify-center rounded-full bg-white text-primary font-bold text-lg dark:bg-primary dark:text-primary-foreground">
                     {user.email?.charAt(0).toUpperCase()}
                   </div>
                 </Button>
@@ -132,7 +132,7 @@ export function Header() {
             </DropdownMenu>
           ) : (
             <Link to="/auth">
-              <Button variant="default">Get Started</Button>
+              <Button variant="secondary" className="font-semibold text-primary">Get Started</Button>
             </Link>
           )}
         </div>
