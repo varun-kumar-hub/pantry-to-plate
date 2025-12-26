@@ -1,871 +1,470 @@
-import { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Header } from '@/components/Header';
-import { RecipeCard } from '@/components/RecipeCard';
-import { AIRecipeCard, AIGeneratedRecipe } from '@/components/AIRecipeCard';
-import { VarietyCard, DishVariety } from '@/components/VarietyCard';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { useExternalAuth } from '@/hooks/useExternalAuth';
+import { ChefHat, Loader2, Sparkles, Clock, Utensils, Flame, CheckCircle2, Search as SearchIcon, UtensilsCrossed } from 'lucide-react';
+import { Header } from '@/components/Header';
 import { useToast } from '@/hooks/use-toast';
-import { externalSupabase } from '@/integrations/external-supabase/client';
-import { recipes, Recipe } from '@/data/recipes';
-import { getFallbackVarieties, findStrictMatch } from '@/data/dishVarieties';
-import { Search as SearchIcon, X, Sparkles, ChefHat, Loader2, ArrowLeft } from 'lucide-react';
+import { useExternalAuth } from '@/hooks/useExternalAuth';
+import { supabase } from '@/integrations/supabase/client';
+import { recipes, searchRecipes, Recipe } from '@/data/recipes';
+import { RecipeCard } from '@/components/RecipeCard';
 
-type SearchState = 'initial' | 'varieties' | 'recipe';
+// Dedicated interface for AI Recipe
+interface AIRecipe {
+  recipe_name: string;
+  description: string;
+  cooking_time_minutes: number;
+  difficulty: string;
+  servings: number;
+  calories_per_serving: number;
+  ingredients: { name: string; quantity: string }[];
+  instructions: string[];
+  image_url?: string;
+  id?: string;
+}
 
 export default function Search() {
-  const { user, loading: authLoading } = useExternalAuth();
-  const navigate = useNavigate();
-  const { toast } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [mode, setMode] = useState<'dish' | 'pantry'>('dish');
 
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<Recipe[]>([]);
-  const [hasSearched, setHasSearched] = useState(false);
+  // Pantry Mode State
+  const [ingredientsList, setIngredientsList] = useState<string[]>([]);
+  const [inputValue, setInputValue] = useState('');
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [aiRecipe, setAiRecipe] = useState<AIRecipe | null>(null);
+
+  // Dish Mode State
+  const [dishQuery, setDishQuery] = useState('');
+  const [dishResults, setDishResults] = useState<Recipe[]>([]);
+  const [hasSearchedDish, setHasSearchedDish] = useState(false);
+
   const [favouriteIds, setFavouriteIds] = useState<Set<string>>(new Set());
-  const [isLoading, setIsLoading] = useState(false);
-  const [loadingImages, setLoadingImages] = useState<Set<string>>(new Set());
-
-  // New state for varieties flow
-  const [searchState, setSearchState] = useState<SearchState>('initial');
-  const [dishName, setDishName] = useState('');
-  const [varieties, setVarieties] = useState<DishVariety[]>([]);
-  const [aiRecipe, setAiRecipe] = useState<AIGeneratedRecipe | null>(null);
-
-  // New Search Mode state
-  const [searchMode, setSearchMode] = useState<'dish' | 'pantry'>('dish');
-
-  // Dietary Preferences
-  const [vegetarianOnly, setVegetarianOnly] = useState(false);
-  const [nonVegetarianOnly, setNonVegetarianOnly] = useState(false);
+  const { toast } = useToast();
+  const { user } = useExternalAuth();
 
   useEffect(() => {
-    if (!authLoading && !user) {
-      navigate('/auth');
-    }
-  }, [user, authLoading, navigate]);
-
-  useEffect(() => {
-    // Load local settings
-    const vegPref = localStorage.getItem('vegetarianOnly') === 'true';
-    const nonVegPref = localStorage.getItem('nonVegetarianOnly') === 'true';
-    setVegetarianOnly(vegPref);
-    setNonVegetarianOnly(nonVegPref);
-
-    if (user) {
-      loadFavourites();
-    }
+    if (user) loadFavourites();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
-  const loadFavourites = async () => {
-    const { data } = await externalSupabase
-      .from('favourite_recipes')
-      .select('recipe_id')
-      .eq('user_id', user?.id);
+  // Handle URL params
+  useEffect(() => {
+    const q = searchParams.get('q');
+    const m = searchParams.get('mode') as 'dish' | 'pantry';
 
-    if (data) {
-      setFavouriteIds(new Set(data.map(f => f.recipe_id)));
+    if (m && (m === 'dish' || m === 'pantry')) {
+      setMode(m);
+      if (q) {
+        if (m === 'pantry') {
+          // If deep linked with comma sep list
+          setIngredientsList(q.split(',').map(s => s.trim()).filter(Boolean));
+          // Auto generate if present? Maybe wait for user action in this new flow to be safe,
+          // but deep links usually expect action. Let's auto-generate.
+          generateAiRecipe(q);
+        } else {
+          setDishQuery(q);
+          performDishSearch(q);
+        }
+      }
+    } else if (q) {
+      // Default to dish if mode not specified but query exists
+      setDishQuery(q);
+      performDishSearch(q);
     }
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run once on mount
 
-  const fetchDishImage = async (dishName: string, fallbackTerm?: string): Promise<string | null> => {
-    try {
-      const PEXELS_API_KEY = 'MpZjLTOunL2GB9RJR0q3JfGcKtpShdshWePBSnSEFlrvAjJwxFwYoorv';
-
-      const searchPexels = async (query: string) => {
-        const response = await fetch(
-          `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=15&orientation=landscape`,
-          { headers: { Authorization: PEXELS_API_KEY } }
-        );
-        return response.ok ? await response.json() : null;
-      };
-
-      // 1. Try specific dish name
-      let data = await searchPexels(dishName);
-
-      // 2. If no results and we have a fallback, try fallback
-      if ((!data || !data.photos || data.photos.length === 0) && fallbackTerm) {
-        console.log(`No images for ${dishName}, trying fallback: ${fallbackTerm}`);
-        data = await searchPexels(fallbackTerm);
-      }
-
-      if (data && data.photos && data.photos.length > 0) {
-        const randomIndex = Math.floor(Math.random() * data.photos.length);
-        return data.photos[randomIndex].src.medium;
-      }
-      return null;
-    } catch (error) {
-      console.error('Error fetching image:', error);
-      return null;
-    }
-  };
-
-  const fetchImagesForVarieties = async (varietiesList: DishVariety[], fallbackTerm?: string) => {
-    // Fetch real images for all varieties in parallel
-    const imagePromises = varietiesList.map(async (variety) => {
-      // If we already have a static image (e.g. from local assets), skip fetch
-      if (variety.image_url && variety.image_url.startsWith('/')) {
-        return { varietyName: variety.variety_name, imageUrl: variety.image_url };
-      }
-
-      setLoadingImages(prev => new Set(prev).add(variety.variety_name));
-
-      const imageUrl = await fetchDishImage(variety.variety_name, fallbackTerm);
-
-      setLoadingImages(prev => {
-        const next = new Set(prev);
-        next.delete(variety.variety_name);
-        return next;
-      });
-
-      return { varietyName: variety.variety_name, imageUrl };
+  const updateMode = (newMode: 'dish' | 'pantry') => {
+    setMode(newMode);
+    setSearchParams(prev => {
+      prev.set('mode', newMode);
+      return prev;
     });
-
-    const results = await Promise.all(imagePromises);
-
-    // Update varieties with fetched images
-    setVarieties(prev =>
-      prev.map(v => {
-        const result = results.find(r => r.varietyName === v.variety_name);
-        return result?.imageUrl ? { ...v, image_url: result.imageUrl } : v;
-      })
-    );
   };
 
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) {
-      toast({
-        title: searchMode === 'dish' ? 'Enter a dish name' : 'Enter ingredients',
-        description: searchMode === 'dish'
-          ? 'Please enter a dish name to find varieties.'
-          : 'Please enter ingredients to find what you can cook.',
-        variant: 'destructive',
-      });
+  const loadFavourites = async () => {
+    try {
+      if (!user?.id) return;
+      const { data, error } = await supabase
+        .from('saved_recipes')
+        .select('google_recipe_id')
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+      setFavouriteIds(new Set(data?.map((r) => r.google_recipe_id) || []));
+    } catch (error) {
+      console.error('Error loading favourites:', error);
+    }
+  };
+
+  const performDishSearch = (query: string) => {
+    if (!query.trim()) {
+      setDishResults([]);
+      setHasSearchedDish(false);
+      return;
+    }
+    const results = searchRecipes(query);
+    setDishResults(results);
+    setHasSearchedDish(true);
+  };
+
+  // State to store the dynamically detected model
+  const [modelId, setModelId] = useState<string>('gemini-1.5-flash');
+
+  const getValidModel = async (apiKey: string): Promise<string> => {
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
+      );
+      if (!response.ok) return 'gemini-1.5-flash';
+
+      const data = await response.json();
+      // Find the first model that supports generateContent
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const validModel = data.models?.find((m: any) =>
+        m.supportedGenerationMethods?.includes('generateContent') &&
+        (m.name.includes('gemini') || m.name.includes('flash') || m.name.includes('pro'))
+      );
+
+      if (validModel) {
+        // The API returns 'models/gemini-1.5-flash', we need just the name sometimes, but usually the full 'models/...' string works or we strip 'models/' depending on the endpoint.
+        // The generate endpoint format is: .../models/{model_id}:generateContent
+        // So if validModel.name is 'models/gemini-1.5-flash', we just want 'gemini-1.5-flash' usually, OR we use the full resource name if the URL structure allows.
+        // Let's strip 'models/' to be safe as we construct the URL manually.
+        return validModel.name.replace('models/', '');
+      }
+      return 'gemini-1.5-flash';
+    } catch (e) {
+      console.error("Error fetching models:", e);
+      return 'gemini-1.5-flash';
+    }
+  };
+
+  const handleAddIngredient = () => {
+    const trimmed = inputValue.trim();
+    if (trimmed) {
+      if (!ingredientsList.includes(trimmed)) {
+        setIngredientsList([...ingredientsList, trimmed]);
+      }
+      setInputValue('');
+    }
+  };
+
+  const removeIngredient = (index: number) => {
+    const newList = [...ingredientsList];
+    newList.splice(index, 1);
+    setIngredientsList(newList);
+  };
+
+  const generateAiRecipe = async (ingredients: string | string[]) => {
+    const inputIngredients = Array.isArray(ingredients) ? ingredients.join(', ') : ingredients;
+
+    if (!inputIngredients.trim()) {
+      toast({ title: 'Empty Pantry?', description: 'Please add at least one ingredient.', variant: 'destructive' });
       return;
     }
 
-    setHasSearched(true);
-    setVarieties([]);
+    setIsAiLoading(true);
     setAiRecipe(null);
-    setDishName(searchQuery.trim());
-    setIsLoading(true);
-    setSearchState('varieties');
 
-    // Rule 9 Logic (Database First) - ONLY for Dish Mode
-    if (searchMode === 'dish') {
-      const dbMatch = findStrictMatch(searchQuery.trim());
+    const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
-      if (dbMatch) {
-        // Deterministic DB Match Found
-        let varietiesWithType: DishVariety[] = dbMatch.map(v => ({
-          variety_name: v.variety_name,
-          short_description: v.short_description,
-          image_url: undefined, // Will be fetched
-          diet: v.diet // Carry over diet type
-        }));
-
-        // Apply Dietary Filter
-        if (vegetarianOnly) {
-          varietiesWithType = varietiesWithType.filter(v => v.diet === 'veg');
-        } else if (nonVegetarianOnly) {
-          varietiesWithType = varietiesWithType.filter(v => v.diet === 'non-veg');
-        }
-
-        if (varietiesWithType.length > 0) {
-          setVarieties(varietiesWithType);
-          toast({
-            title: 'Found in Cookbook!',
-            description: `Found ${varietiesWithType.length} varieties. Fetching images...`,
-          });
-          fetchImagesForVarieties(varietiesWithType);
-          setIsLoading(false); // Done!
-          return;
-        } else {
-          // If filtered list is empty (e.g. searching "Chicken" with Veg Only mode), fall through to AI
-          console.log("Filtered all local results based on diet. Trying AI...");
-        }
-      }
+    if (!GEMINI_API_KEY) {
+      toast({ title: 'Configuration Error', description: 'Gemini API Key is missing.', variant: 'destructive' });
+      setIsAiLoading(false);
+      return;
     }
 
-    // AI Logic (Fallback for Dish Mode OR Primary for Pantry Mode)
+    // Dynamic Model Selection
+    let activeModel = modelId;
+    // Attempt to verify model if we haven't successfully used one yet (simple optimization)
     try {
-      const GEMINI_API_KEY = 'AIzaSyA9Foy_jSrzp7sBwkiXuGBvx3wRy3FWNP8';
-
-      let dietPrompt = "";
-      if (vegetarianOnly) dietPrompt = "strictly VEGETARIAN";
-      else if (nonVegetarianOnly) dietPrompt = "strictly NON-VEGETARIAN";
-
-      let prompt = "";
-
-      if (searchMode === 'dish') {
-        prompt = `Generate 6 popular and distinct ${dietPrompt} varieties of the dish "${searchQuery.trim()}". 
-         For each, provide a 'variety_name' and 'short_description'. 
-         Return a valid JSON object with a 'varieties' array. 
-         Example structure: { "varieties": [{ "variety_name": "Name", "short_description": "Desc" }] }`;
-      } else {
-        // Pantry Mode Prompt
-        prompt = `I have these ingredients: "${searchQuery.trim()}". 
-         Suggest 6 distinct dishes I can cook using mainly these ingredients. ${dietPrompt}.
-         For each, provide a 'variety_name' (the name of the dish) and 'short_description' (why it works with these ingredients).
-         Return a valid JSON object with a 'varieties' array. 
-         Example structure: { "varieties": [{ "variety_name": "Name", "short_description": "Desc" }] }`;
+      const detected = await getValidModel(GEMINI_API_KEY);
+      if (detected) {
+        activeModel = detected;
+        setModelId(detected);
       }
-
-      // Retry helper
-      const fetchWithRetry = async (url: string, options: RequestInit, retries = 2) => {
-        for (let i = 0; i < retries; i++) {
-          try {
-            const res = await fetch(url, options);
-            if (res.ok) return res;
-          } catch (e) {
-            if (i === retries - 1) throw e;
-          }
-          await new Promise(resolve => setTimeout(resolve, 1000)); // wait 1s
-        }
-        throw new Error('All retries failed');
-      };
-
-      const response = await fetchWithRetry(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            contents: [{
-              parts: [{ text: prompt }]
-            }]
-          })
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(`HTTP error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      let varietiesData;
-
-      try {
-        const text = data.candidates[0].content.parts[0].text;
-        console.log("Gemini Raw Response:", text); // Debugging
-
-        // Robust JSON extraction
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          varietiesData = JSON.parse(jsonMatch[0]);
-        } else {
-          throw new Error('No JSON object found in response');
-        }
-      } catch (e) {
-        console.error('Failed to parse Gemini varieties response:', e);
-        // Fallback Logic
-        if (searchMode === 'dish') {
-          // Dish Mode Fallback: Check local data
-          let fb = getFallbackVarieties(searchQuery.trim()) || [];
-          if (vegetarianOnly) fb = fb.filter(v => v.diet === 'veg');
-          if (nonVegetarianOnly) fb = fb.filter(v => v.diet === 'non-veg');
-          varietiesData = { varieties: fb };
-        } else {
-          // Pantry Mode Fallback: Provide generic suggestions based on common ingredients
-          // This ensures the user ALWAYS sees something instead of an error
-          const genericFallback = [
-            { variety_name: "Fried Rice", short_description: "A classic way to use leftover rice and vegetables.", diet: "veg" },
-            { variety_name: "Vegetable Stir Fry", short_description: "Quick, healthy, and uses whatever veggies you have.", diet: "veg" },
-            { variety_name: "Simple Curry", short_description: "A basic curry base that works with almost any protein or veg.", diet: "veg" },
-            { variety_name: "Omelette", short_description: "Perfect if you have eggs and some basic veggies.", diet: "non-veg" }
-          ];
-
-          let fb = genericFallback;
-          if (vegetarianOnly) fb = fb.filter(v => v.diet === 'veg');
-          if (nonVegetarianOnly) fb = fb.filter(v => v.diet === 'non-veg');
-
-          varietiesData = { varieties: fb };
-          toast({
-            title: "Offline Mode",
-            description: "Couldn't reach AI. Showing generic ideas for your ingredients.",
-          });
-        }
-      }
-
-      const varietiesList = varietiesData.varieties || [];
-
-      if (varietiesList.length > 0) {
-        // Map to ensure shape
-        const varietiesWithType: DishVariety[] = varietiesList.map((v: any) => ({
-          variety_name: v.variety_name,
-          short_description: v.short_description,
-        }));
-
-        setVarieties(varietiesWithType);
-
-        toast({
-          title: searchMode === 'dish' ? 'Varieties Found!' : 'Dishes Suggested!',
-          description: `Found ${varietiesWithType.length} options. Fetching images...`,
-        });
-
-        // Fetch real images for all varieties
-        // For Pantry mode, fallback term defaults to first ingredient to help search
-        const fallbackTerm = searchMode === 'pantry' ? searchQuery.split(',')[0].trim() : searchQuery.trim();
-        fetchImagesForVarieties(varietiesWithType, fallbackTerm);
-      } else {
-        // Fallback logic mostly applies to Dish Mode
-        if (searchMode === 'dish') {
-          let fallbackData = getFallbackVarieties(searchQuery.trim());
-
-          if (fallbackData) {
-            // Apply Filters to fallback data
-            if (vegetarianOnly) {
-              fallbackData = fallbackData.filter(v => v.diet === 'veg');
-            } else if (nonVegetarianOnly) {
-              fallbackData = fallbackData.filter(v => v.diet === 'non-veg');
-            }
-          }
-
-          if (fallbackData && fallbackData.length > 0) {
-            const varietiesWithType = fallbackData.map(v => ({
-              variety_name: v.variety_name,
-              short_description: v.short_description,
-            }));
-            setVarieties(varietiesWithType);
-            fetchImagesForVarieties(varietiesWithType);
-          } else {
-            toast({
-              title: 'No varieties found',
-              description: vegetarianOnly
-                ? 'No vegetarian varieties found for this dish.'
-                : nonVegetarianOnly
-                  ? 'No non-vegetarian varieties found for this dish.'
-                  : 'Try a more general dish name.',
-            });
-            setSearchState('initial');
-          }
-        } else {
-          toast({
-            title: 'No suggestions',
-            description: 'Could not find dishes with these ingredients. Try simpler ones.'
-          });
-          setSearchState('initial');
-        }
-      }
-    } catch (error: any) {
-      console.error('Error fetching varieties, defaulting to offline data:', error);
-
-      let fallbackData;
-
-      if (searchMode === 'dish') {
-        fallbackData = getFallbackVarieties(searchQuery.trim());
-      } else {
-        // Pantry Mode Fallback - Same generic list
-        fallbackData = [
-          { variety_name: "Fried Rice", short_description: "A classic way to use leftover rice and vegetables.", diet: "veg" },
-          { variety_name: "Vegetable Stir Fry", short_description: "Quick, healthy, and uses whatever veggies you have.", diet: "veg" },
-          { variety_name: "Simple Curry", short_description: "A basic curry base that works with almost any protein or veg.", diet: "veg" },
-          { variety_name: "Omelette", short_description: "Perfect if you have eggs and some basic veggies.", diet: "non-veg" }
-        ] as any;
-      }
-
-      if (fallbackData) {
-        // Apply Filters to fallback data
-        if (vegetarianOnly) {
-          fallbackData = fallbackData.filter(v => v.diet === 'veg');
-        } else if (nonVegetarianOnly) {
-          fallbackData = fallbackData.filter(v => v.diet === 'non-veg');
-        }
-      }
-
-      if (fallbackData && fallbackData.length > 0) {
-        const varietiesWithType = fallbackData.map(v => ({
-          variety_name: v.variety_name,
-          short_description: v.short_description,
-        }));
-        setVarieties(varietiesWithType);
-        fetchImagesForVarieties(varietiesWithType);
-      } else {
-        // Only show error if we truly have nothing
-        toast({
-          title: 'No results found',
-          description: 'Try a more general dish name.',
-        });
-        setSearchState('initial');
-      }
-    } finally {
-      setIsLoading(false);
+    } catch (e) {
+      console.warn("Failed to detect model, using default");
     }
-  };
 
-  const handleVarietyClick = async (variety: DishVariety) => {
-    setIsLoading(true);
-
-    try {
-      const GEMINI_API_KEY = 'AIzaSyA9Foy_jSrzp7sBwkiXuGBvx3wRy3FWNP8';
-
-      let dietInstruction = "";
-      if (vegetarianOnly) dietInstruction = "Make this recipe purely Vegetarian (no meat, no eggs if strictly veg).";
-      else if (nonVegetarianOnly) dietInstruction = "Make this recipe Non-Vegetarian (include meat/fish/egg).";
-
-
-      const prompt = `Generate a recipe for ${variety.variety_name}. ${dietInstruction} Return a valid JSON object (no markdown formatting) with the following structure:
+    const prompt = `
+      Act as a creative and helpful professional chef.
+      I have these ingredients: "${inputIngredients}".
+      
+      Your goal is to ALWAYS generate a delicious recipe, no matter what.
+      - If the ingredients are sufficient, create a great dish.
+      - If the ingredients are few or unusual, use your culinary expertise to suggest a recipe that uses them, assuming the user has basic pantry staples (flour, oil, sugar, water, salt, pepper, simple spices).
+      - Do NOT refuse to generate.
+      - Do NOT return an error.
+      
+      Return a STRICT JSON object with this structure:
       {
-        "recipe_name": "${variety.variety_name}",
-        "cooking_time_minutes": number,
-        "difficulty": "Easy" | "Medium" | "Hard",
-        "servings": number,
-        "ingredients": [{"name": string, "quantity": string}],
-        "instructions": [string],
-        "description": string,
-        "nutrition": { "calories": number, "protein": "XXg", "carbs": "XXg", "fats": "XXg" }
-      }`;
+        "recipe_name": "Recipe Name",
+        "description": "A very short, appetizing description (1 sentence).",
+        "cooking_time_minutes": 30,
+        "difficulty": "Easy",
+        "servings": 2,
+        "calories_per_serving": 500,
+        "ingredients": [
+          {"name": "Ingredient 1", "quantity": "amount"},
+          {"name": "Ingredient 2", "quantity": "amount"}
+        ],
+        "instructions": [
+          "Step 1 instruction...",
+          "Step 2 instruction..."
+        ]
+      }
+    `;
 
+    try {
+      console.log("Using Gemini Model:", activeModel);
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${activeModel}:generateContent?key=${GEMINI_API_KEY}`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            contents: [{
-              parts: [{ text: prompt }]
-            }]
-          })
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
         }
       );
 
       if (!response.ok) {
-        throw new Error(`HTTP error: ${response.status}`);
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error?.message || `API Request Failed: ${response.status} (${activeModel})`);
       }
 
       const data = await response.json();
-
-      let recipeJson;
-      try {
-        const text = data.candidates[0].content.parts[0].text;
-        // Robust JSON extraction
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          recipeJson = JSON.parse(jsonMatch[0]);
-        } else {
-          throw new Error('No JSON found in response');
-        }
-      } catch (e) {
-        console.error('Failed to parse Gemini response:', e);
-        console.log('Raw text:', data.candidates?.[0]?.content?.parts?.[0]?.text);
-        throw new Error('Failed to parse recipe data');
+      if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
+        throw new Error('AI returned no content. Please try again.');
       }
 
-      if (recipeJson) {
-        // Set recipe with the pre-generated image from variety
-        const recipeWithImage = {
-          ...recipeJson,
-          image_url: variety.image_url || null,
-        };
+      const text = data.candidates[0].content.parts[0].text;
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
 
-        // Store recipe and navigate directly to detail page
-        localStorage.setItem('aiRecipe', JSON.stringify(recipeWithImage));
-        navigate('/recipe/ai-generated');
+      if (!jsonMatch) throw new Error('Invalid AI response format');
 
-        toast({
-          title: 'Recipe Generated!',
-          description: `Created: ${recipeJson.recipe_name}`,
-        });
-      }
+      const parsedRecipe = JSON.parse(jsonMatch[0]);
+      parsedRecipe.id = `ai-${Date.now()}`;
+
+      setAiRecipe(parsedRecipe);
+
     } catch (error: any) {
-      console.error('Error generating recipe:', error);
-
-      // Fallback: Generate a template recipe so the user always gets a result
-      const fallbackRecipe = {
-        recipe_name: variety.variety_name,
-        cooking_time_minutes: 45,
-        difficulty: "Medium",
-        servings: 4,
-        ingredients: [
-          { name: "Main Ingredient", quantity: "500g" },
-          { name: "Onions", quantity: "2 medium" },
-          { name: "Tomatoes", quantity: "2 medium" },
-          { name: "Spices", quantity: "to taste" },
-          { name: "Oil", quantity: "2 tbsp" },
-          { name: "Salt", quantity: "to taste" }
-        ],
-        instructions: [
-          "Prepare all the ingredients by washing and chopping them efficiently.",
-          `Heat oil in a pan and sauté the spices until aromatic for the ${variety.variety_name}.`,
-          "Add the onions and cook until they turn golden brown and translucent.",
-          "Add tomatoes and cook until they become soft and mushy.",
-          "Add the main ingredients and mix well with the masala base.",
-          "Cover and cook until the dish is fully done and flavors are absorbed.",
-          "Garnish with fresh coriander leaves and serve hot."
-        ],
-        description: `A delicious homemade version of ${variety.variety_name}, perfect for a family meal.`
-      };
-
-      const recipeWithImage = {
-        ...fallbackRecipe,
-        image_url: variety.image_url || null,
-      };
-
-      localStorage.setItem('aiRecipe', JSON.stringify(recipeWithImage));
-      navigate('/recipe/ai-generated');
-
+      console.error('Generation Error:', error);
       toast({
-        title: 'Recipe Generated!',
-        description: `Created: ${variety.variety_name}`,
+        title: 'Recipe Generation Failed',
+        description: error.message || 'Check API Key/Quota.',
+        variant: 'destructive',
       });
-      setIsLoading(false);
+    } finally {
+      setIsAiLoading(false);
     }
   };
 
-  const handleAIRecipeClick = () => {
-    if (aiRecipe) {
-      localStorage.setItem('aiRecipe', JSON.stringify(aiRecipe));
-      navigate('/recipe/ai-generated');
-    }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const toggleFavourite = (recipe: Recipe) => {
+    // Legacy toggle logic placeholder
+    toast({ title: 'Feature coming soon!' });
   };
-
-  const handleBack = () => {
-    if (searchState === 'recipe') {
-      setSearchState('varieties');
-      setAiRecipe(null);
-    } else if (searchState === 'varieties') {
-      setSearchState('initial');
-      setVarieties([]);
-      setDishName('');
-    }
-  };
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleSearch();
-    }
-  };
-
-  const toggleFavourite = async (recipe: Recipe) => {
-    if (!user) return;
-
-    const isFavourite = favouriteIds.has(recipe.id);
-
-    if (isFavourite) {
-      await externalSupabase
-        .from('favourite_recipes')
-        .delete()
-        .eq('user_id', user.id)
-        .eq('recipe_id', recipe.id);
-
-      setFavouriteIds(prev => {
-        const next = new Set(prev);
-        next.delete(recipe.id);
-        return next;
-      });
-
-      toast({
-        title: 'Removed from favourites',
-        description: `${recipe.name} has been removed from your favourites.`,
-      });
-    } else {
-      await externalSupabase.from('favourite_recipes').insert([{
-        user_id: user.id,
-        recipe_id: recipe.id,
-        recipe_name: recipe.name,
-        recipe_data: JSON.parse(JSON.stringify(recipe)),
-      }]);
-
-      setFavouriteIds(prev => new Set(prev).add(recipe.id));
-
-      toast({
-        title: 'Added to favourites',
-        description: `${recipe.name} has been added to your favourites.`,
-      });
-    }
-  };
-
-  // Randomize popular recipes so different users see different suggestions
-  const popularRecipes = useMemo(() => {
-    // 1. Filter ALL recipes first based on diet
-    let filtered = [...recipes];
-
-    // Safety check - force refresh from storage if memo runs but effect hasn't
-    const vegPref = localStorage.getItem('vegetarianOnly') === 'true';
-    const nonVegPref = localStorage.getItem('nonVegetarianOnly') === 'true';
-
-    // We can use state here because useMemo will re-run when state changes
-    if (vegetarianOnly || vegPref) {
-      filtered = filtered.filter(r => r.diet === 'veg');
-    } else if (nonVegetarianOnly || nonVegPref) {
-      filtered = filtered.filter(r => r.diet === 'non-veg');
-    }
-
-    // 2. Then shuffle and slice
-    return filtered.sort(() => 0.5 - Math.random()).slice(0, 6);
-  }, [vegetarianOnly, nonVegetarianOnly]); // Add dependencies to re-run on preference change
-
-  const displayRecipes = hasSearched ? searchResults : popularRecipes;
-
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="animate-pulse text-muted-foreground">Loading...</div>
-      </div>
-    );
-  }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background text-foreground font-sans">
       <Header />
 
-      <main className="container py-8">
-        {/* Search Section */}
-        <div className="max-w-3xl mx-auto mb-12">
-          <div className="text-center mb-8">
-            <h1 className="font-display text-3xl md:text-4xl font-bold text-foreground mb-4">
-              What's in Your Kitchen?
-            </h1>
-            <p className="text-muted-foreground">
-              Enter a dish name — we'll show you popular varieties to choose from!
-            </p>
-            {/* Active Filters Indicator */}
-            {(vegetarianOnly || nonVegetarianOnly) && (
-              <div className="mt-4 inline-flex items-center gap-2 px-3 py-1 bg-primary/10 text-primary rounded-full text-sm font-medium animate-in fade-in">
-                <ChefHat className="h-4 w-4" />
-                <span>
-                  {vegetarianOnly ? "Vegetarian Only Mode Active 🥦" : "Non-Vegetarian Only Mode Active 🍗"}
-                </span>
-              </div>
-            )}
-          </div>
-
-          <div className="relative">
-            {/* Search Mode Toggles */}
-            <div className="flex justify-center gap-4 mb-4">
-              <button
-                onClick={() => setSearchMode('dish')}
-                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${searchMode === 'dish'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                  }`}
-              >
-                Find a Dish
-              </button>
-              <button
-                onClick={() => setSearchMode('pantry')}
-                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${searchMode === 'pantry'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                  }`}
-              >
-                Pantry Search (Ingredients)
-              </button>
-            </div>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                <Input
-                  type="text"
-                  placeholder={searchMode === 'dish' ? "e.g., biryani, pizza, pasta..." : "e.g., chicken, onions, tomatoes, rice..."}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyPress={handleKeyPress}
-                  disabled={isLoading}
-                  className="pl-12 pr-10 h-14 text-base rounded-xl"
-                />
-                {searchQuery && !isLoading && (
-                  <button
-                    onClick={() => {
-                      setSearchQuery('');
-                      setHasSearched(false);
-                      setSearchResults([]);
-                      setVarieties([]);
-                      setAiRecipe(null);
-                      setSearchState('initial');
-                    }}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  >
-                    <X className="h-5 w-5" />
-                  </button>
-                )}
-              </div>
-              <Button
-                onClick={handleSearch}
-                size="lg"
-                className="h-14 px-8 rounded-xl gap-2"
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                    Loading...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="h-5 w-5" />
-                    {searchMode === 'dish' ? 'Find Varieties' : 'Suggest Dishes'}
-                  </>
-                )}
-              </Button>
-            </div>
-
-            {/* Quick dish suggestions */}
-            <div className="flex flex-wrap gap-2 mt-4">
-              {['biryani', 'pizza', 'pasta', 'curry', 'burger', 'tacos'].map((dish) => (
-                <button
-                  key={dish}
-                  onClick={() => setSearchQuery(dish)}
-                  disabled={isLoading}
-                  className="px-3 py-1.5 rounded-full bg-secondary text-secondary-foreground text-sm hover:bg-secondary/80 transition-colors disabled:opacity-50 capitalize"
-                >
-                  {dish}
-                </button>
-              ))}
-            </div>
+      <main className="container max-w-6xl mx-auto pb-20 pt-10 px-4">
+        {/* Toggle Header */}
+        <div className="flex justify-center mb-10">
+          <div className="bg-secondary/50 p-1.5 rounded-full inline-flex items-center gap-2">
+            <Button
+              variant={mode === 'dish' ? 'default' : 'ghost'}
+              onClick={() => updateMode('dish')}
+              className="rounded-full px-6"
+            >
+              <SearchIcon className="w-4 h-4 mr-2" />
+              Find a Dish
+            </Button>
+            <Button
+              variant={mode === 'pantry' ? 'default' : 'ghost'}
+              onClick={() => updateMode('pantry')}
+              className="rounded-full px-6"
+            >
+              <ChefHat className="w-4 h-4 mr-2" />
+              Pantry Search
+            </Button>
           </div>
         </div>
 
-        {/* Back button when in varieties or recipe state */}
-        {searchState !== 'initial' && (
-          <div className="max-w-3xl mx-auto mb-6">
-            <Button
-              variant="ghost"
-              onClick={handleBack}
-              className="gap-2"
-              disabled={isLoading}
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Back to {searchState === 'recipe' ? 'Varieties' : 'Search'}
-            </Button>
-          </div>
-        )}
+        {/* PANTRY MODE - AI GENERATOR */}
+        {mode === 'pantry' && (
+          <div className="max-w-4xl mx-auto">
+            <div className="text-center mb-10 animate-fade-up">
+              <h1 className="font-display text-4xl md:text-5xl font-bold mb-4">What's in your pantry?</h1>
+              <p className="text-muted-foreground text-lg mb-8">Type an ingredient and press Enter to add it.</p>
 
-        {/* Varieties Section */}
-        {searchState === 'varieties' && varieties.length > 0 && (
-          <div className="max-w-4xl mx-auto mb-12">
-            <div className="flex items-center gap-2 mb-6">
-              <Sparkles className="h-5 w-5 text-accent" />
-              <h2 className="font-display text-xl font-semibold text-foreground">
-                Varieties of {dishName}
-                {(vegetarianOnly || nonVegetarianOnly) && (
-                  <span className="text-sm font-normal text-muted-foreground ml-2">
-                    ({vegetarianOnly ? 'Vegetarian' : 'Non-Veg'})
-                  </span>
-                )}
-              </h2>
-              {loadingImages.size > 0 && (
-                <span className="text-sm text-muted-foreground flex items-center gap-1">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  Loading images...
-                </span>
-              )}
-            </div>
-            <div className="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-              {varieties.map((variety, index) => (
-                <div
-                  key={variety.variety_name}
-                  className="animate-in fade-in slide-in-from-bottom-4"
-                  style={{ animationDelay: `${0.05 * index}s` }}
-                >
-                  <VarietyCard
-                    variety={variety}
-                    onClick={() => handleVarietyClick(variety)}
-                    isLoadingImage={loadingImages.has(variety.variety_name)}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* AI Generated Recipe Card */}
-        {searchState === 'recipe' && aiRecipe && (
-          <div className="max-w-md mx-auto mb-12">
-            <div className="flex items-center gap-2 mb-4">
-              <Sparkles className="h-5 w-5 text-accent" />
-              <h2 className="font-display text-xl font-semibold text-foreground">
-                Generated Recipe
-              </h2>
-            </div>
-            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <AIRecipeCard
-                recipe={aiRecipe}
-                onClick={handleAIRecipeClick}
-              />
-            </div>
-            <p className="text-sm text-muted-foreground text-center mt-4">
-              Click the card to view full recipe details
-            </p>
-          </div>
-        )}
-
-        {/* Loading state */}
-        {isLoading && (
-          <div className="max-w-3xl mx-auto mb-12 text-center py-12">
-            <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
-            <p className="text-muted-foreground">
-              {searchState === 'varieties' ? 'Finding varieties...' : 'Generating recipe...'}
-            </p>
-          </div>
-        )}
-
-        {/* Results Section - Show only in initial state */}
-        {searchState === 'initial' && (
-          <div>
-            <div className="flex items-center gap-2 mb-6">
-              <ChefHat className="h-5 w-5 text-primary" />
-              <h2 className="font-display text-xl font-semibold text-foreground">
-                {hasSearched
-                  ? `${searchResults.length} Recipe${searchResults.length !== 1 ? 's' : ''} Found`
-                  : 'Popular Recipes'}
-              </h2>
-            </div>
-
-            {displayRecipes.length > 0 ? (
-              <div className="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-                {displayRecipes.map((recipe, index) => (
-                  <div
-                    key={recipe.id}
-                    className="animate-fade-up"
-                    style={{ animationDelay: `${0.05 * index}s` }}
-                  >
-                    <RecipeCard
-                      recipe={recipe}
-                      isFavourite={favouriteIds.has(recipe.id)}
-                      onToggleFavourite={toggleFavourite}
-                    />
-                  </div>
-                ))}
-              </div>
-            ) : hasSearched ? (
-              <div className="text-center py-16">
-                <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-muted mb-4">
-                  <SearchIcon className="h-8 w-8 text-muted-foreground" />
-                </div>
-                <h3 className="font-display text-xl font-semibold text-foreground mb-2">
-                  No recipes found
-                </h3>
-                <p className="text-muted-foreground mb-6">
-                  Try a different dish name or check out our popular recipes
-                </p>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setSearchQuery('');
-                    setHasSearched(false);
+              <div className="relative max-w-xl mx-auto group">
+                <input
+                  type="text"
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  placeholder="Type 'Chicken' then Enter..."
+                  className="w-full pl-6 pr-4 py-4 rounded-2xl border-2 border-border/50 bg-card/50 shadow-sm text-lg focus:ring-primary/20 outline-none transition-all"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddIngredient();
+                    }
                   }}
+                />
+
+                {/* Ingredient Tags Area */}
+                <div className="mt-4 flex flex-wrap gap-2 justify-center min-h-[40px]">
+                  {ingredientsList.map((ing, idx) => (
+                    <span key={idx} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-medium animate-in fade-in zoom-in duration-300">
+                      {ing}
+                      <button onClick={() => removeIngredient(idx)} className="hover:text-red-500 transition-colors">
+                        &times;
+                      </button>
+                    </span>
+                  ))}
+                </div>
+
+                <Button
+                  className="mt-6 w-full sm:w-auto h-12 px-8 text-lg rounded-xl gap-2 shadow-lg"
+                  onClick={() => generateAiRecipe(ingredientsList)}
+                  disabled={isAiLoading || ingredientsList.length === 0}
                 >
-                  Browse All Recipes
+                  {isAiLoading ? <Loader2 className="animate-spin" /> : <Sparkles />}
+                  {isAiLoading ? 'Creating...' : 'Generate Recipe'}
                 </Button>
               </div>
-            ) : (
-              <div className="text-center py-16">
-                <p className="text-muted-foreground">
-                  {vegetarianOnly
-                    ? "No popular vegetarian recipes found. Search for something else!"
-                    : "No popular non-vegetarian recipes found. Search for something else!"}
-                </p>
+            </div>
+
+            {/* AI Result */}
+            {isAiLoading && !aiRecipe && (
+              <div className="text-center py-20 animate-in fade-in duration-700">
+                <div className="w-16 h-16 mx-auto mb-6 rounded-full bg-primary/10 flex items-center justify-center animate-pulse">
+                  <ChefHat className="h-8 w-8 text-primary animate-bounce-custom" />
+                </div>
+                <h3 className="text-xl font-medium text-foreground">Designing your dish...</h3>
+                <p className="text-muted-foreground mt-2">Thinking about flavors and textures.</p>
+              </div>
+            )}
+
+            {aiRecipe && (
+              <div className="animate-in fade-in slide-in-from-bottom-8 duration-700 bg-card rounded-3xl border border-border/50 shadow-soft overflow-hidden">
+                <div className="bg-gradient-warm p-8 text-center relative overflow-hidden">
+                  <div className="absolute top-0 right-0 p-3 opacity-10"><ChefHat className="w-32 h-32 rotate-12" /></div>
+                  <span className="bg-primary/90 text-white px-3 py-1 rounded-full text-sm font-medium">AI Generated</span>
+                  <h2 className="font-display text-3xl font-bold mt-4 mb-2">{aiRecipe.recipe_name}</h2>
+                  <p className="text-muted-foreground italic">"{aiRecipe.description}"</p>
+                  <div className="flex flex-wrap justify-center gap-4 mt-6">
+                    <MetricBadge icon={Clock} label={`${aiRecipe.cooking_time_minutes} min`} />
+                    <MetricBadge icon={Utensils} label={`${aiRecipe.servings} Servings`} />
+                    <MetricBadge icon={Flame} label={`${aiRecipe.calories_per_serving} kcal`} />
+                    <MetricBadge icon={CheckCircle2} label={aiRecipe.difficulty} />
+                  </div>
+                </div>
+                <div className="grid md:grid-cols-[1fr,1.5fr] divide-y md:divide-y-0 md:divide-x divide-border/50">
+                  <div className="p-8 bg-muted/30">
+                    <h3 className="font-bold text-xl mb-4">Ingredients</h3>
+                    <ul className="space-y-3">
+                      {aiRecipe.ingredients.map((ing, i) => (
+                        <li key={i} className="flex gap-2">
+                          <div className="h-1.5 w-1.5 mt-2 rounded-full bg-primary shrink-0" />
+                          <span><span className="font-medium">{ing.name}</span> <span className="text-muted-foreground text-sm">({ing.quantity})</span></span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="p-8">
+                    <h3 className="font-bold text-xl mb-4">Instructions</h3>
+                    <div className="space-y-4">
+                      {aiRecipe.instructions.map((step, i) => (
+                        <div key={i} className="flex gap-4">
+                          <span className="w-6 h-6 rounded-full bg-secondary flex items-center justify-center font-bold text-sm shrink-0">{i + 1}</span>
+                          <p className="text-foreground/90">{step}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </div>
         )}
+
+        {/* DISH MODE - DATABASE SEARCH */}
+        {mode === 'dish' && (
+          <div className="max-w-6xl mx-auto">
+            <div className="text-center mb-10 animate-fade-up">
+              <h1 className="font-display text-4xl md:text-5xl font-bold mb-4">Find a Dish</h1>
+              <p className="text-muted-foreground text-lg mb-8">Search our collection of delicious recipes.</p>
+
+              <div className="relative max-w-xl mx-auto">
+                <input
+                  type="text"
+                  value={dishQuery}
+                  onChange={(e) => {
+                    setDishQuery(e.target.value);
+                    performDishSearch(e.target.value);
+                  }}
+                  placeholder="Search for 'Biryani', 'Pasta', etc..."
+                  className="w-full pl-12 pr-4 py-4 rounded-2xl border-2 border-border/50 bg-card shadow-sm text-lg outline-none focus:ring-primary/20 transition-all"
+                />
+                <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground w-6 h-6" />
+              </div>
+            </div>
+
+            {hasSearchedDish && dishResults.length === 0 ? (
+              <div className="text-center py-20 text-muted-foreground">
+                <UtensilsCrossed className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <h3 className="text-xl font-medium">No recipes found</h3>
+                <p>Try searching for something else like "Chicken" or "Rice".</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4">
+                {dishResults.map(r => (
+                  <RecipeCard
+                    key={r.id}
+                    recipe={r}
+                    isFavourite={favouriteIds.has(r.id)}
+                    onToggleFavourite={toggleFavourite}
+                  />
+                ))}
+                {/* Show popular/all recipes if no search query? */}
+                {!hasSearchedDish && recipes.map(r => (
+                  <RecipeCard
+                    key={r.id}
+                    recipe={r}
+                    isFavourite={favouriteIds.has(r.id)}
+                    onToggleFavourite={toggleFavourite}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
       </main>
     </div>
+  );
+}
+
+// Helper
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function MetricBadge({ icon: Icon, label }: { icon: any, label: string }) {
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5 bg-background/50 rounded-lg border border-border/50 text-sm">
+      <Icon className="w-4 h-4 text-primary" />
+      <span className="font-medium text-sm">{label}</span>
+    </div>
+  );
+}
+
+// Simple Badge Component if missing
+function Badge({ children, className }: { children: React.ReactNode, className?: string }) {
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 ${className}`}>
+      {children}
+    </span>
   );
 }
