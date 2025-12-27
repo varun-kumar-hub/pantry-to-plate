@@ -189,6 +189,7 @@ serve(async (req: Request) => {
         // Use Gemini 2.5 Flash with fallback to 1.5 Flash
         const models = [
             "gemini-2.5-flash",
+            "gemini-1.5-flash-latest",
             "gemini-1.5-flash"
         ];
 

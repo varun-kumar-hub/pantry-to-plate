@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { User, Session } from '@supabase/supabase-js';
 import { externalSupabase } from '@/integrations/external-supabase/client';
 import { Capacitor } from '@capacitor/core';
+import { App } from '@capacitor/app';
 
 interface AuthContextType {
   user: User | null;
@@ -39,7 +40,30 @@ export function ExternalAuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
     });
 
-    return () => subscription.unsubscribe();
+    // Handle deep links for mobile OAuth redirect
+    App.addListener('appUrlOpen', async ({ url }) => {
+      if (url.includes('google-auth')) {
+        // Parse the URL fragment (Supabase returns access_token in hash)
+        const fragment = url.split('#')[1];
+        if (fragment) {
+          const params = new URLSearchParams(fragment);
+          const accessToken = params.get('access_token');
+          const refreshToken = params.get('refresh_token');
+
+          if (accessToken && refreshToken) {
+            await externalSupabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            });
+          }
+        }
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+      App.removeAllListeners();
+    };
   }, []);
 
   const signUp = async (email: string, password: string, fullName?: string) => {

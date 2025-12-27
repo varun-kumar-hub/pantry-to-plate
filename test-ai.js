@@ -1,6 +1,6 @@
 
 async function test() {
-    const key = "AIzaSyAuU9jo76NY-nx7e4p4SeWa26T6TLTVcqk";
+    const key = "AIzaSyCaUiJ9lXF7aBpiySvCoqO1sKbKHuQyhLY";
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${key}`;
 
     try {

@@ -32,7 +32,7 @@ export function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-primary/20 dark:border-white/10 bg-primary text-primary-foreground dark:bg-card dark:text-card-foreground shadow-lg">
+    <header className="sticky top-0 z-50 w-full border-b border-primary/20 dark:border-white/10 bg-primary text-primary-foreground dark:bg-card dark:text-card-foreground shadow-lg pt-[env(safe-area-inset-top)]">
       <div className="container flex h-16 items-center justify-between">
         <Link to="/" className="flex items-center gap-2 group">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/20 text-white backdrop-blur-sm transition-transform group-hover:scale-105">
