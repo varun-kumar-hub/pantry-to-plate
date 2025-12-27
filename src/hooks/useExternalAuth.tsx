@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { externalSupabase } from '@/integrations/external-supabase/client';
+import { Capacitor } from '@capacitor/core';
 
 interface AuthContextType {
   user: User | null;
@@ -80,10 +81,15 @@ export function ExternalAuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signInWithGoogle = async () => {
+    // Determine the redirect URL based on the platform
+    const redirectTo = Capacitor.isNativePlatform()
+      ? 'com.recipegenie.app://google-auth'
+      : `${window.location.origin}/`;
+
     const { error } = await externalSupabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/`,
+        redirectTo,
       },
     });
     return { error };
