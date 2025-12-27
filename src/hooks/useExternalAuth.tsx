@@ -3,6 +3,7 @@ import { User, Session } from '@supabase/supabase-js';
 import { externalSupabase } from '@/integrations/external-supabase/client';
 import { Capacitor } from '@capacitor/core';
 import { App } from '@capacitor/app';
+import { Browser } from '@capacitor/browser';
 
 interface AuthContextType {
   user: User | null;
@@ -110,13 +111,25 @@ export function ExternalAuthProvider({ children }: { children: ReactNode }) {
       ? 'com.recipegenie.app://google-auth'
       : `${window.location.origin}/`;
 
-    const { error } = await externalSupabase.auth.signInWithOAuth({
+    const { data, error } = await externalSupabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo,
+        skipBrowserRedirect: true,
       },
     });
-    return { error };
+
+    if (error) return { error };
+
+    if (data?.url) {
+      if (Capacitor.isNativePlatform()) {
+        await Browser.open({ url: data.url, windowName: '_self' });
+      } else {
+        window.location.href = data.url;
+      }
+    }
+
+    return { error: null };
   };
 
   const signOut = async () => {
